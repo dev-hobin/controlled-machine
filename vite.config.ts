@@ -7,7 +7,8 @@ export default defineConfig({
   plugins: [
     dts({
       include: ['src'],
-      rollupTypes: true,
+      exclude: ['src/__tests__'],
+      rollupTypes: false,
       afterBuild: () => {
         // Copy .d.ts to .d.cts for CJS compatibility
         copyFileSync('dist/index.d.ts', 'dist/index.d.cts')
