@@ -20,6 +20,7 @@ import {
   executeHandler,
   processEffects,
   clearEffectStore,
+  MachineInstance,
 } from './index'
 
 // ============================================
@@ -27,7 +28,7 @@ import {
 // ============================================
 
 export function useMachine<T extends MachineTypes>(
-  machine: Machine<T>,
+  machine: MachineInstance<T>,
   input: T['input'],
 ): { send: Send<Events<T>>; computed: Computed<T>; state: State<T> } {
   // refs for stable callbacks
