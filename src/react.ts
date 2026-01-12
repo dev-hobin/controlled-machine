@@ -56,8 +56,8 @@ export function useMachine<T extends MachineTypes>(
     [machine.actions, optionsActions],
   )
   const mergedGuards = useMemo(
-    () => (optionsGuards ?? {}) as Record<string, (context: Context<T>, payload?: unknown) => boolean>,
-    [optionsGuards],
+    () => ({ ...machine.guards, ...optionsGuards }) as Record<string, (context: Context<T>, payload?: unknown) => boolean>,
+    [machine.guards, optionsGuards],
   )
 
   // refs for stable callbacks
