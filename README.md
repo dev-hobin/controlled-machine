@@ -1,67 +1,71 @@
 # Controlled Machine
 
-A controlled state machine where state lives outside the machine.
+A controlled state machine where **state lives outside the machine**.
+
+Machine defines **what** happens. Your component owns **the state**.
+
+## The Killer Example
+
+A reusable dropdown machine — logic lives in the machine, DOM handling in your component:
 
 ```ts
-import { createMachine } from 'controlled-machine'
-import { useMachine } from 'controlled-machine/react'
-
-const machine = createMachine<{
-  input: { isOpen: boolean; setIsOpen: (v: boolean) => void }
-  events: { OPEN: undefined; CLOSE: undefined }
-  actions: 'open' | 'close'
+// dropdown-machine.ts — Pure logic, no DOM dependencies
+const dropdownMachine = createMachine<{
+  input: { isOpen: boolean; onOpenChange: (v: boolean) => void }
+  events: { OPEN: undefined; CLOSE: undefined; TOGGLE: undefined }
+  actions: 'open' | 'close' | 'focusTrigger'
+  guards: 'isOpen'
 }>({
   on: {
-    OPEN: 'open',
-    CLOSE: 'close',
+    OPEN: [{ when: 'isOpen', do: [] }, { do: 'open' }],
+    CLOSE: [{ when: 'isOpen', do: ['close', 'focusTrigger'] }],
+    TOGGLE: [{ when: 'isOpen', do: 'close' }, { do: 'open' }],
   },
   actions: {
-    open: (ctx) => ctx.setIsOpen(true),
-    close: (ctx) => ctx.setIsOpen(false),
+    open: (ctx) => ctx.onOpenChange(true),
+    close: (ctx) => ctx.onOpenChange(false),
+    focusTrigger: () => {},  // Default: noop
+  },
+  guards: {
+    isOpen: (ctx) => ctx.isOpen,
   },
 })
+```
 
+```tsx
+// Dropdown.tsx — Component provides DOM implementation
 function Dropdown() {
   const [isOpen, setIsOpen] = useState(false)
-  const { send } = useMachine(machine, { isOpen, setIsOpen })
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  return <button onClick={() => send('OPEN')}>Open</button>
+  const { send } = useMachine(dropdownMachine, {
+    input: { isOpen, onOpenChange: setIsOpen },
+    actions: {
+      // Override: provide actual DOM implementation
+      focusTrigger: () => triggerRef.current?.focus(),
+    },
+  })
+
+  return (
+    <>
+      <button ref={triggerRef} onClick={() => send('TOGGLE')}>
+        Menu
+      </button>
+      {isOpen && (
+        <ul>
+          <li onClick={() => send('CLOSE')}>Item 1</li>
+        </ul>
+      )}
+    </>
+  )
 }
 ```
 
----
-
-## Introduction
-
-Controlled Machine maintains the core concepts of state machines (conditional transitions, side effects) while **keeping state external**.
-
-```ts
-// XState: state lives inside the machine
-const machine = createMachine({
-  initial: 'closed',
-  states: {
-    closed: { on: { OPEN: 'open' } },
-    open: { on: { CLOSE: 'closed' } },
-  },
-})
-
-// Controlled Machine: state is external, machine only defines handlers
-const [isOpen, setIsOpen] = useState(false)
-const { send } = useMachine(machine, { isOpen, setIsOpen })
-```
-
-In React, the most powerful pattern is **external state passed via props**. Controlled Machine naturally integrates with this approach.
-
----
-
-## Features
-
-- **Controlled** — State is managed in React state or props
-- **Conditional handlers** — Branch logic with `when` conditions
-- **State-based structure** — Define different handlers per state
-- **Effects** — Watch value changes, cleanup support, `send` access
-- **Computed** — Derive values from context
-- **Multiple actions** — Execute multiple actions per event
+**Why this matters:**
+- Machine is **pure and testable** — no refs, no DOM
+- Component **owns its state** — React's controlled pattern
+- Override **only what you need** — `focusTrigger` gets real implementation
+- Same machine, **different UIs** — reuse logic across components
 
 ---
 
@@ -69,86 +73,68 @@ In React, the most powerful pattern is **external state passed via props**. Cont
 
 ```bash
 npm install controlled-machine
-# or
-pnpm add controlled-machine
-# or
-yarn add controlled-machine
 ```
 
 ---
 
-## Basic Usage
+## Core Concepts
 
-### Define a Machine
+### 1. External State
 
-Use `createMachine` to define event handlers.
+Unlike XState where state lives inside the machine, here **you own the state**:
 
-```ts
-import { createMachine } from 'controlled-machine'
+```tsx
+// Your state, your control
+const [isOpen, setIsOpen] = useState(false)
+const [selectedId, setSelectedId] = useState<string | null>(null)
 
-type Input = {
-  isOpen: boolean
-  setIsOpen: (v: boolean) => void
-  selectedId: string | null
-  setSelectedId: (v: string | null) => void
-}
-
-type Events = {
-  OPEN: undefined
-  CLOSE: undefined
-  SELECT: { itemId: string }
-}
-
-const machine = createMachine<{
-  input: Input
-  events: Events
-  actions: 'open' | 'close' | 'select'
-}>({
-  on: {
-    OPEN: 'open',
-    CLOSE: 'close',
-    SELECT: 'select',
-  },
-  actions: {
-    open: (ctx) => ctx.setIsOpen(true),
-    close: (ctx) => ctx.setIsOpen(false),
-    select: (ctx, payload) => {
-      ctx.setSelectedId(payload.itemId)
-      ctx.setIsOpen(false)
-    },
-  },
+// Machine just defines handlers
+const { send } = useMachine(machine, {
+  input: { isOpen, onOpenChange: setIsOpen, selectedId, onSelect: setSelectedId },
 })
 ```
 
-### Send Events
+### 2. Declarative Handlers
 
-Use `useMachine` in React components.
+Define **what** happens on each event with conditional logic:
 
-```tsx
-import { useMachine } from 'controlled-machine/react'
-
-function Dropdown() {
-  const [isOpen, setIsOpen] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  const { send } = useMachine(machine, {
-    isOpen,
-    setIsOpen,
-    selectedId,
-    setSelectedId,
-  })
-
-  return (
-    <div>
-      <button onClick={() => send('OPEN')}>Open</button>
-      {isOpen && (
-        <ul>
-          <li onClick={() => send('SELECT', { itemId: '1' })}>Item 1</li>
-        </ul>
-      )}
-    </div>
-  )
+```ts
+on: {
+  SELECT: [
+    { when: 'isDisabled', do: [] },           // Guard: skip if disabled
+    { when: 'hasSelection', do: 'deselect' }, // Conditional action
+    { do: ['select', 'close'] },              // Default: multiple actions
+  ],
 }
+```
+
+### 3. Actions & Guards Override
+
+Machine provides defaults. Component can override:
+
+```ts
+// Machine: default implementations
+const machine = createMachine({
+  actions: {
+    scrollToItem: () => {},  // noop default
+    focusInput: () => {},
+  },
+  guards: {
+    canSelect: (ctx) => !ctx.disabled,
+  },
+})
+
+// Component: real implementations
+useMachine(machine, {
+  input: { ... },
+  actions: {
+    scrollToItem: (ctx) => itemRefs.get(ctx.highlightedId)?.scrollIntoView(),
+    focusInput: () => inputRef.current?.focus(),
+  },
+  guards: {
+    canSelect: (ctx) => !ctx.disabled && ctx.items.length > 0,
+  },
+})
 ```
 
 ---
@@ -157,358 +143,172 @@ function Dropdown() {
 
 ### `createMachine<T>(config)`
 
-Creates a machine definition with the given configuration.
-
-**Type Parameters:**
-
 ```ts
-type MachineTypes = {
-  input?: unknown    // External data passed to the machine
-  events?: Record<string, unknown>  // Event name → payload type
-  computed?: Record<string, unknown>  // Derived values
-  actions?: string   // Union of action names
-  state?: string     // Union of state names (for state-based structure)
-}
+const machine = createMachine<{
+  input: { count: number; setCount: (n: number) => void }
+  events: { INCREMENT: undefined; SET: { value: number } }
+  computed: { isPositive: boolean }
+  actions: 'increment' | 'set'
+  guards: 'canIncrement'
+  state: 'idle' | 'active'  // Optional: for state-based handlers
+}>({
+  computed: {
+    isPositive: (input) => input.count > 0,
+  },
+  on: {
+    INCREMENT: [{ when: 'canIncrement', do: 'increment' }],
+    SET: 'set',
+  },
+  actions: {
+    increment: (ctx) => ctx.setCount(ctx.count + 1),
+    set: (ctx, payload) => ctx.setCount(payload.value),
+  },
+  guards: {
+    canIncrement: (ctx) => ctx.count < 10,
+  },
+})
 ```
 
-**Config:**
+### `useMachine(machine, options)`
 
-| Property | Description |
-|----------|-------------|
-| `computed` | Functions that derive values from input |
-| `on` | Event → action mappings (global handlers) |
-| `states` | State-specific event handlers |
-| `always` | Rules evaluated on every context change |
-| `effects` | Watch-based side effects |
-| `actions` | Named action implementations |
+```ts
+const { send, computed, state } = useMachine(machine, {
+  input: { count, setCount },
+  actions: { /* optional overrides */ },
+  guards: { /* optional overrides */ },
+})
 
-### `useMachine(machine, input)`
-
-React hook that connects a machine to component state.
-
-**Returns:**
-
-| Property | Description |
-|----------|-------------|
-| `send` | Function to dispatch events |
-| `computed` | Computed values derived from input |
-| `state` | Current state (if using state-based structure) |
+send('INCREMENT')
+send('SET', { value: 5 })
+```
 
 ---
 
-## Conditional Handlers
+## Features
 
-Use `when` conditions to branch logic. Stops at the first match.
+### Conditional Handlers
+
+Branch logic with `when`. Stops at first match:
 
 ```ts
 on: {
   TOGGLE: [
-    { when: (ctx) => ctx.disabled, do: 'noop' },
-    { when: (ctx) => ctx.isOpen, do: 'close' },
-    { do: 'open' },  // default case
+    { when: (ctx) => ctx.disabled, do: [] },     // Function guard
+    { when: 'isOpen', do: 'close' },             // String guard (from guards config)
+    { do: 'open' },                               // Default case
   ],
 }
 ```
 
----
+### Multiple Actions
 
-## Multiple Actions
-
-Execute multiple actions per event.
+Execute multiple actions per event:
 
 ```ts
 on: {
-  // Single action
-  OPEN: 'open',
+  SELECT: ['highlight', 'select', 'close'],  // Array of actions
 
-  // Multiple actions (array)
-  CLOSE: ['clearHighlight', 'close'],
-
-  // Conditional with multiple actions
-  SELECT: [
-    { when: (ctx) => ctx.disabled, do: 'noop' },
-    { do: ['highlight', 'select', 'close'] },
+  CONFIRM: [
+    { when: 'isValid', do: ['save', 'close', 'notify'] },
+    { do: 'showError' },
   ],
 }
 ```
 
----
+### Computed Values
 
-## State-based Structure
-
-Define different handlers per state. Undefined events are ignored.
-
-The `state` value can come from either `computed` (recommended) or `input` directly.
-
-### Approach 1: Computed State (Recommended)
-
-Derive state from existing values. This aligns with the "controlled" philosophy—state is computed from the source of truth.
+Derive values from input:
 
 ```ts
-// Async data fetching example
-const machine = createMachine<{
-  input: {
-    data: Item[] | null
-    isLoading: boolean
-    error: Error | null
-    setData: (data: Item[] | null) => void
-    setIsLoading: (v: boolean) => void
-    setError: (e: Error | null) => void
-  }
-  events: { FETCH: undefined; RETRY: undefined }
-  computed: { state: 'idle' | 'loading' | 'error' | 'success' }
-  actions: 'fetch' | 'retry'
-  state: 'idle' | 'loading' | 'error' | 'success'
-}>({
-  computed: {
-    state: (input) => {
-      if (input.isLoading) return 'loading'
-      if (input.error) return 'error'
-      if (input.data) return 'success'
-      return 'idle'
+computed: {
+  isEmpty: (input) => input.items.length === 0,
+  canSubmit: (input) => input.value.length > 0 && !input.isLoading,
+},
+
+// Use in handlers
+on: {
+  SUBMIT: [
+    { when: (ctx) => !ctx.canSubmit, do: [] },
+    { do: 'submit' },
+  ],
+}
+
+// Access from hook
+const { computed } = useMachine(machine, { input })
+if (computed.isEmpty) { /* ... */ }
+```
+
+### Effects
+
+Watch value changes and react:
+
+```ts
+effects: [
+  {
+    watch: (ctx) => ctx.highlightedId,
+    enter: (ctx, { send }) => {
+      // When watch becomes truthy
+      const timer = setTimeout(() => send('AUTO_SELECT'), 1000)
+      return () => clearTimeout(timer)  // Cleanup
+    },
+    exit: () => {
+      // When watch becomes falsy
+    },
+    change: (ctx, prev, curr, { send }) => {
+      // On any change
+      console.log(`${prev} → ${curr}`)
     },
   },
+]
+```
+
+### State-based Handlers
+
+Different handlers per state:
+
+```ts
+const machine = createMachine<{
+  input: { state: 'idle' | 'loading' | 'error'; setState: (s) => void }
+  events: { FETCH: undefined; RETRY: undefined }
+  state: 'idle' | 'loading' | 'error'
+}>({
   states: {
     idle: {
-      on: { FETCH: 'fetch' },
+      on: { FETCH: 'startFetch' },
     },
     loading: {
       // FETCH ignored while loading
     },
     error: {
-      on: { RETRY: 'retry' },
-    },
-    success: {
-      on: { FETCH: 'fetch' },  // Allow refetch
+      on: { RETRY: 'startFetch' },
     },
   },
-  actions: {
-    fetch: async (ctx) => {
-      ctx.setIsLoading(true)
-      ctx.setError(null)
-      // fetch logic...
-    },
-    retry: (ctx) => {
-      ctx.setError(null)
-      ctx.setIsLoading(true)
-      // retry logic...
-    },
-  },
+  actions: { startFetch: (ctx) => ctx.setState('loading') },
 })
-
-// React: manage individual values, state is derived
-function DataList() {
-  const [data, setData] = useState<Item[] | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
-
-  const { send, state } = useMachine(machine, {
-    data, setData, isLoading, setIsLoading, error, setError,
-  })
-
-  return (
-    <div>
-      {state === 'idle' && <button onClick={() => send('FETCH')}>Load</button>}
-      {state === 'loading' && <Spinner />}
-      {state === 'error' && <button onClick={() => send('RETRY')}>Retry</button>}
-      {state === 'success' && <List items={data!} />}
-    </div>
-  )
-}
 ```
 
-### Approach 2: Direct State in Input
+### Always Rules
 
-Use when state is explicitly managed as a single value.
-
-```ts
-// Modal with explicit state management
-const machine = createMachine<{
-  input: {
-    state: 'closed' | 'opening' | 'open' | 'closing'
-    setState: (s: 'closed' | 'opening' | 'open' | 'closing') => void
-  }
-  events: { OPEN: undefined; CLOSE: undefined; ANIMATION_END: undefined }
-  actions: 'startOpen' | 'completeOpen' | 'startClose' | 'completeClose'
-  state: 'closed' | 'opening' | 'open' | 'closing'
-}>({
-  states: {
-    closed: {
-      on: { OPEN: 'startOpen' },
-    },
-    opening: {
-      on: { ANIMATION_END: 'completeOpen' },
-    },
-    open: {
-      on: { CLOSE: 'startClose' },
-    },
-    closing: {
-      on: { ANIMATION_END: 'completeClose' },
-    },
-  },
-  actions: {
-    startOpen: (ctx) => ctx.setState('opening'),
-    completeOpen: (ctx) => ctx.setState('open'),
-    startClose: (ctx) => ctx.setState('closing'),
-    completeClose: (ctx) => ctx.setState('closed'),
-  },
-})
-
-// React: manage state directly
-function Modal() {
-  const [state, setState] = useState<'closed' | 'opening' | 'open' | 'closing'>('closed')
-  const { send } = useMachine(machine, { state, setState })
-
-  return (
-    <div
-      className={`modal modal--${state}`}
-      onAnimationEnd={() => send('ANIMATION_END')}
-    >
-      <button onClick={() => send('CLOSE')}>Close</button>
-    </div>
-  )
-}
-```
-
-### Combining with Global Handlers
-
-State handlers run first, then global handlers:
-
-```ts
-{
-  states: {
-    idle: { on: { LOG: 'logIdle' } },
-    active: { on: { LOG: 'logActive' } },
-  },
-  on: {
-    LOG: 'logGlobal',  // Always runs after state handler
-  },
-}
-// idle + LOG → logIdle, then logGlobal
-```
-
----
-
-## Effects
-
-Watch value changes and react to them. Access `send` in callbacks.
-
-```ts
-effects: [
-  {
-    watch: (ctx) => ctx.hoveredId,
-    enter: (ctx, { send }) => {
-      // Called when watch value becomes truthy
-      const timer = setTimeout(() => send('OPEN'), 300)
-      return () => clearTimeout(timer)  // cleanup
-    },
-    exit: (ctx, { send }) => {
-      // Called when watch value becomes falsy
-      send('CLOSE')
-    },
-    change: (ctx, prev, curr, { send }) => {
-      // Called on any change
-      console.log(`Changed from ${prev} to ${curr}`)
-    },
-  }
-]
-```
-
-### Async Operations with Cleanup
-
-Handle async requests and race conditions:
-
-```ts
-effects: [
-  {
-    watch: (ctx) => ctx.searchQuery,
-    change: (ctx, prev, curr, { send }) => {
-      const controller = new AbortController()
-
-      fetch(`/api/search?q=${curr}`, { signal: controller.signal })
-        .then(res => res.json())
-        .then(data => send('FETCH_SUCCESS', { data }))
-        .catch(() => {})
-
-      return () => controller.abort()  // Cancel previous request
-    },
-  },
-]
-```
-
-### Effect Helper Function
-
-Use the `effect` helper for better type inference:
-
-```ts
-import { effect } from 'controlled-machine'
-
-effects: [
-  effect<Context, Events, string | null>({
-    watch: (ctx) => ctx.focusedId,
-    enter: (ctx, { send }) => { /* ... */ },
-  }),
-]
-```
-
----
-
-## Computed Values
-
-Derive values from input. Available in handlers and returned from the hook.
-
-```ts
-const machine = createMachine<{
-  input: Input
-  events: Events
-  computed: { isEmpty: boolean; displayValue: string }
-}>({
-  computed: {
-    isEmpty: (ctx) => ctx.items.length === 0,
-    displayValue: (ctx) => ctx.selectedItem?.label ?? ctx.inputValue,
-  },
-  on: {
-    CLEAR: [
-      { when: (ctx) => ctx.isEmpty, do: 'noop' },  // Use computed in handlers
-      { do: 'clear' },
-    ],
-  },
-})
-
-// Access computed values
-const { computed } = useMachine(machine, input)
-if (computed.isEmpty) { /* ... */ }
-```
-
----
-
-## Always Rules
-
-Rules evaluated automatically on every context change.
+Auto-evaluated on every context change:
 
 ```ts
 always: [
-  { when: (ctx) => ctx.value < 0, do: 'resetToZero' },
-  { when: (ctx) => ctx.value > 100, do: 'capToMax' },
+  { when: (ctx) => ctx.value < 0, do: 'clampToMin' },
+  { when: (ctx) => ctx.value > 100, do: 'clampToMax' },
 ]
 ```
 
 ---
 
-## Vanilla JavaScript Usage
+## Vanilla Usage
 
 Use without React:
 
 ```ts
-import { createMachine } from 'controlled-machine'
+const machine = createMachine({ /* config */ })
 
-const machine = createMachine<{ /* types */ }>({
-  on: { /* handlers */ },
-  actions: { /* actions */ },
-})
-
-// Send events with input
-machine.send('OPEN', { isOpen: false, setIsOpen: (v) => { /* ... */ } })
+// Send events
+machine.send('OPEN', { isOpen: false, onOpenChange: (v) => { /* ... */ } })
 
 // Evaluate effects
 machine.evaluate(input)
@@ -516,7 +316,7 @@ machine.evaluate(input)
 // Get computed values
 const computed = machine.getComputed(input)
 
-// Cleanup effects on unmount
+// Cleanup
 machine.cleanup()
 ```
 
@@ -524,16 +324,16 @@ machine.cleanup()
 
 ## TypeScript
 
-### Object-based Generic Types
+### Type Parameters
 
-Specify only the types you need in any order:
+Specify only what you need:
 
 ```ts
 // Minimal
 createMachine<{
   input: MyInput
   events: MyEvents
-}>({ /* ... */ })
+}>({ ... })
 
 // Full
 createMachine<{
@@ -541,29 +341,18 @@ createMachine<{
   events: MyEvents
   computed: MyComputed
   actions: 'action1' | 'action2'
-  state: 'idle' | 'loading' | 'open'
-}>({ /* ... */ })
+  guards: 'guard1' | 'guard2'
+  state: 'idle' | 'active'
+}>({ ... })
 ```
 
-### Type Exports
+### Exports
 
 ```ts
-import type {
-  MachineTypes,
-  Machine,
-  Send,
-  Effect,
-  Rule,
-  Handler,
-} from 'controlled-machine'
+import { createMachine, effect } from 'controlled-machine'
+import { useMachine } from 'controlled-machine/react'
+import type { Machine, Send, Rule, Handler, UseMachineOptions } from 'controlled-machine'
 ```
-
----
-
-## Limitations
-
-- **No machine-to-machine communication** — Coordinate in parent components
-- **No parallel states** — Use separate state variables
 
 ---
 

@@ -14,6 +14,8 @@ import {
   type EffectHelpers,
   type EffectStore,
   type Context,
+  type Actions,
+  type Guards,
   computeValues,
   executeActions,
   executeHandler,
@@ -23,20 +25,52 @@ import {
 } from './index'
 
 // ============================================
+// useMachine Options Type
+// ============================================
+
+export type UseMachineOptions<T extends MachineTypes> = {
+  input: T['input']
+  actions?: Partial<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Actions<T>]: (context: Context<T>, payload?: any) => void
+  }>
+  guards?: Partial<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Guards<T>]: (context: Context<T>, payload?: any) => boolean
+  }>
+}
+
+// ============================================
 // React Hook
 // ============================================
 
 export function useMachine<T extends MachineTypes>(
   machine: MachineInstance<T>,
-  input: T['input'],
+  options: UseMachineOptions<T>,
 ): { send: Send<Events<T>>; computed: Computed<T>; state: State<T> } {
+  const { input, actions: optionsActions, guards: optionsGuards } = options
+
+  // Merge actions and guards
+  const mergedActions = useMemo(
+    () => ({ ...machine.actions, ...optionsActions }),
+    [machine.actions, optionsActions],
+  )
+  const mergedGuards = useMemo(
+    () => (optionsGuards ?? {}) as Record<string, (context: Context<T>, payload?: unknown) => boolean>,
+    [optionsGuards],
+  )
+
   // refs for stable callbacks
   const inputRef = useRef(input)
   const machineRef = useRef(machine)
+  const mergedActionsRef = useRef(mergedActions)
+  const mergedGuardsRef = useRef(mergedGuards)
   const isMountedRef = useRef(true)
 
   inputRef.current = input
   machineRef.current = machine
+  mergedActionsRef.current = mergedActions
+  mergedGuardsRef.current = mergedGuards
 
   // compute values
   const { computed: computedDef } = machine
@@ -67,11 +101,15 @@ export function useMachine<T extends MachineTypes>(
   })
 
   // always: auto-evaluate when context changes (synchronous, during render)
-  const { always, actions } = machine
-  if (prevContextRef.current !== context && always && actions) {
-    const actionsMap = actions as Record<string, (context: Context<T>) => void>
+  const { always } = machine
+  if (prevContextRef.current !== context && always && Object.keys(mergedActions).length > 0) {
+    const actionsMap = mergedActions as Record<string, (context: Context<T>) => void>
+    const guardsMap = mergedGuards as Record<string, (context: Context<T>) => boolean>
     for (const rule of always) {
-      if (!rule.when || rule.when(context, undefined)) {
+      const guardFn =
+        typeof rule.when === 'string' ? guardsMap[rule.when] : rule.when
+
+      if (!guardFn || guardFn(context, undefined)) {
         executeActions(rule.do, actionsMap, context, undefined)
         break
       }
@@ -87,6 +125,8 @@ export function useMachine<T extends MachineTypes>(
     ) => {
       const currentMachine = machineRef.current
       const currentInput = inputRef.current
+      const currentActions = mergedActionsRef.current
+      const currentGuards = mergedGuardsRef.current
       const currentContext = computeValues(
         currentInput,
         currentMachine.computed,
@@ -99,7 +139,8 @@ export function useMachine<T extends MachineTypes>(
         const stateHandler = currentMachine.states[state].on![event]!
         executeHandler(
           stateHandler,
-          currentMachine.actions ?? {},
+          currentActions ?? {},
+          currentGuards,
           currentContext,
           payload,
         )
@@ -110,7 +151,8 @@ export function useMachine<T extends MachineTypes>(
       if (globalHandler) {
         executeHandler(
           globalHandler,
-          currentMachine.actions ?? {},
+          currentActions ?? {},
+          currentGuards,
           currentContext,
           payload,
         )

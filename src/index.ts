@@ -19,8 +19,9 @@ export type Rule<
   TContext,
   TPayload = undefined,
   TActions extends string = string,
+  TGuards extends string = string,
 > = {
-  when?: (context: TContext, payload: TPayload) => boolean
+  when?: ((context: TContext, payload: TPayload) => boolean) | TGuards
   do: TActions | TActions[]
 }
 
@@ -28,7 +29,8 @@ export type Handler<
   TContext,
   TPayload = undefined,
   TActions extends string = string,
-> = TActions | TActions[] | Rule<TContext, TPayload, TActions>[]
+  TGuards extends string = string,
+> = TActions | TActions[] | Rule<TContext, TPayload, TActions, TGuards>[]
 
 // Effect helpers - utilities available in effect callbacks
 export type EffectHelpers<TEvents extends EventsConfig> = {
@@ -85,6 +87,7 @@ export type MachineTypes = {
   events?: EventsConfig
   computed?: ComputedConfig
   actions?: string
+  guards?: string
   state?: string
 }
 
@@ -97,6 +100,9 @@ export type Computed<T extends MachineTypes> = T['computed'] extends ComputedCon
   : Record<string, never>
 export type Actions<T extends MachineTypes> = T['actions'] extends string
   ? T['actions']
+  : string
+export type Guards<T extends MachineTypes> = T['guards'] extends string
+  ? T['guards']
   : string
 export type State<T extends MachineTypes> = T['state'] extends string
   ? T['state']
@@ -128,15 +134,19 @@ export type Machine<T extends MachineTypes> = {
     [K in keyof Computed<T>]: (input: Input<T>) => Computed<T>[K]
   }
   on?: {
-    [K in keyof Events<T>]?: Handler<Context<T>, Events<T>[K], Actions<T>>
+    [K in keyof Events<T>]?: Handler<Context<T>, Events<T>[K], Actions<T>, Guards<T>>
   }
   states?: StatesConfig<State<T>, Context<T>, Events<T>, Actions<T>>
-  always?: Rule<Context<T>, undefined, Actions<T>>[]
+  always?: Rule<Context<T>, undefined, Actions<T>, Guards<T>>[]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   effects?: Effect<Context<T>, Events<T>, any>[]
   actions?: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [K in Actions<T>]: (context: Context<T>, payload?: any) => void
+  }
+  guards?: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Guards<T>]: (context: Context<T>, payload?: any) => boolean
   }
 }
 
@@ -190,6 +200,7 @@ export function isRuleArray<TContext, TPayload, TActions extends string>(
 export function executeHandler<TContext, TPayload>(
   handler: Handler<TContext, TPayload>,
   actions: Record<string, (context: TContext, payload?: TPayload) => void>,
+  guards: Record<string, (context: TContext, payload?: TPayload) => boolean>,
   context: TContext,
   payload: TPayload,
 ): void {
@@ -201,7 +212,10 @@ export function executeHandler<TContext, TPayload>(
 
   // Rule array
   for (const rule of handler as Rule<TContext, TPayload>[]) {
-    if (!rule.when || rule.when(context, payload)) {
+    const guardFn =
+      typeof rule.when === 'string' ? guards[rule.when] : rule.when
+
+    if (!guardFn || guardFn(context, payload)) {
       executeActions(rule.do, actions, context, payload)
       break
     }
@@ -355,13 +369,13 @@ export function createMachine<T extends MachineTypes>(
     const state = (context as { state?: State<T> }).state
     if (state && config.states?.[state]?.on?.[event]) {
       const stateHandler = config.states[state].on[event]
-      executeHandler(stateHandler, config.actions ?? {}, context, payload)
+      executeHandler(stateHandler, config.actions ?? {}, config.guards ?? {}, context, payload)
     }
 
     // 2. Global handler
     const globalHandler = config.on?.[event]
     if (globalHandler) {
-      executeHandler(globalHandler, config.actions ?? {}, context, payload)
+      executeHandler(globalHandler, config.actions ?? {}, config.guards ?? {}, context, payload)
     }
   }) as <K extends keyof Events<T>>(
     event: K,
@@ -389,8 +403,15 @@ export function createMachine<T extends MachineTypes>(
         string,
         (context: Context<T>) => void
       >
+      const guardsMap = (config.guards ?? {}) as Record<
+        string,
+        (context: Context<T>) => boolean
+      >
       for (const rule of config.always) {
-        if (!rule.when || rule.when(context, undefined)) {
+        const guardFn =
+          typeof rule.when === 'string' ? guardsMap[rule.when] : rule.when
+
+        if (!guardFn || guardFn(context, undefined)) {
           executeActions(rule.do, actionsMap, context, undefined)
           break
         }

@@ -423,4 +423,88 @@ describe('Vanilla: createMachine', () => {
       expect(clamp).not.toHaveBeenCalled()
     })
   })
+
+  // --------------------------------------------
+  // guards: String-based Guard Names
+  // --------------------------------------------
+
+  describe('guards: String-based Guard Names', () => {
+    it('string guards are resolved from machine guards', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { value: number }
+        events: { CHECK: undefined }
+        actions: 'doAction'
+        guards: 'isPositive'
+      }>({
+        on: {
+          CHECK: [{ when: 'isPositive', do: 'doAction' }],
+        },
+        actions: { doAction: action },
+        guards: { isPositive: (ctx) => ctx.value > 0 },
+      })
+
+      machine.send('CHECK', { value: 5 })
+      expect(action).toHaveBeenCalledTimes(1)
+
+      vi.clearAllMocks()
+
+      machine.send('CHECK', { value: -5 })
+      expect(action).not.toHaveBeenCalled()
+    })
+
+    it('string guards work in always rules', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { value: number }
+        actions: 'normalize'
+        guards: 'needsNormalization'
+      }>({
+        always: [{ when: 'needsNormalization', do: 'normalize' }],
+        actions: { normalize: action },
+        guards: { needsNormalization: (ctx) => ctx.value > 100 },
+      })
+
+      machine.evaluate({ value: 50 })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.evaluate({ value: 150 })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('function and string guards can be mixed', () => {
+      const action1 = vi.fn()
+      const action2 = vi.fn()
+
+      const machine = createMachine<{
+        input: { value: number }
+        events: { CHECK: undefined }
+        actions: 'action1' | 'action2'
+        guards: 'stringGuard'
+      }>({
+        on: {
+          CHECK: [
+            { when: 'stringGuard', do: 'action1' },
+            { when: (ctx) => ctx.value < 0, do: 'action2' },
+          ],
+        },
+        actions: { action1, action2 },
+        guards: { stringGuard: (ctx) => ctx.value > 0 },
+      })
+
+      // value > 0: stringGuard passes
+      machine.send('CHECK', { value: 5 })
+      expect(action1).toHaveBeenCalledTimes(1)
+      expect(action2).not.toHaveBeenCalled()
+
+      vi.clearAllMocks()
+
+      // value < 0: stringGuard fails, function guard passes
+      machine.send('CHECK', { value: -5 })
+      expect(action1).not.toHaveBeenCalled()
+      expect(action2).toHaveBeenCalledTimes(1)
+    })
+  })
 })
