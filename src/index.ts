@@ -30,7 +30,11 @@ export type Handler<
   TPayload = undefined,
   TActions extends string = string,
   TGuards extends string = string,
-> = TActions | TActions[] | Rule<TContext, TPayload, TActions, TGuards>[]
+> =
+  | TActions
+  | TActions[]
+  | Rule<TContext, TPayload, TActions, TGuards>[]
+  | ((context: TContext, payload: TPayload) => void)
 
 // Effect helpers - utilities available in effect callbacks
 export type EffectHelpers<TEvents extends EventsConfig> = {
@@ -111,6 +115,9 @@ export type State<T extends MachineTypes> = T['state'] extends string
 // Context = Input + Computed (full context available in handlers)
 export type Context<T extends MachineTypes> = Input<T> & Computed<T>
 
+// All possible payloads union (for named actions/guards that can be called by multiple events)
+export type AllPayloads<T extends MachineTypes> = Events<T>[keyof Events<T>]
+
 // State-based handler configuration
 export type StateConfig<
   TContext,
@@ -141,12 +148,10 @@ export type Machine<T extends MachineTypes> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   effects?: Effect<Context<T>, Events<T>, any>[]
   actions?: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [K in Actions<T>]: (context: Context<T>, payload?: any) => void
+    [K in Actions<T>]: (context: Context<T>, payload?: AllPayloads<T>) => void
   }
   guards?: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [K in Guards<T>]: (context: Context<T>, payload?: any) => boolean
+    [K in Guards<T>]: (context: Context<T>, payload?: AllPayloads<T>) => boolean
   }
 }
 
