@@ -16,7 +16,6 @@ import {
   type Context,
   type Actions,
   type Guards,
-  type AllPayloads,
   computeValues,
   executeActions,
   executeHandler,
@@ -32,10 +31,12 @@ import {
 export type UseMachineOptions<T extends MachineTypes> = {
   input: T['input']
   actions?: Partial<{
-    [K in Actions<T>]: (context: Context<T>, payload?: AllPayloads<T>) => void
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Actions<T>]: (context: Context<T>, payload?: any) => void
   }>
   guards?: Partial<{
-    [K in Guards<T>]: (context: Context<T>, payload?: AllPayloads<T>) => boolean
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Guards<T>]: (context: Context<T>, payload?: any) => boolean
   }>
 }
 

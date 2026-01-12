@@ -115,9 +115,6 @@ export type State<T extends MachineTypes> = T['state'] extends string
 // Context = Input + Computed (full context available in handlers)
 export type Context<T extends MachineTypes> = Input<T> & Computed<T>
 
-// All possible payloads union (for named actions/guards that can be called by multiple events)
-export type AllPayloads<T extends MachineTypes> = Events<T>[keyof Events<T>]
-
 // State-based handler configuration
 export type StateConfig<
   TContext,
@@ -148,10 +145,12 @@ export type Machine<T extends MachineTypes> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   effects?: Effect<Context<T>, Events<T>, any>[]
   actions?: {
-    [K in Actions<T>]: (context: Context<T>, payload?: AllPayloads<T>) => void
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Actions<T>]: (context: Context<T>, payload?: any) => void
   }
   guards?: {
-    [K in Guards<T>]: (context: Context<T>, payload?: AllPayloads<T>) => boolean
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in Guards<T>]: (context: Context<T>, payload?: any) => boolean
   }
 }
 
