@@ -188,14 +188,62 @@ send('SET', { value: 5 })
 
 ### Conditional Handlers
 
-Branch logic with `when`. Stops at first match:
+Branch logic with `when`/`do` rules. Stops at first match:
 
 ```ts
 on: {
   TOGGLE: [
-    { when: (ctx) => ctx.disabled, do: [] },     // Function guard
-    { when: 'isOpen', do: 'close' },             // String guard (from guards config)
-    { do: 'open' },                               // Default case
+    { when: 'isDisabled', do: [] },   // Skip if disabled
+    { when: 'isOpen', do: 'close' },  // Close if open
+    { do: 'open' },                    // Default: open
+  ],
+}
+```
+
+### Guards
+
+Use named guards, inline functions, or arrays in `when`:
+
+```ts
+on: {
+  TOGGLE: [
+    { when: 'isOpen', do: 'close' },             // Named guard
+    { when: (ctx) => ctx.disabled, do: [] },     // Inline guard function
+  ],
+
+  // Multiple guards - ALL must pass (AND logic)
+  DELETE: [
+    {
+      when: ['isAdmin', 'hasPermission', (ctx) => !ctx.isLocked],
+      do: 'deleteItem',
+    },
+    { do: 'showError' },
+  ],
+}
+```
+
+### Inline Actions
+
+Use inline functions directly in `do`:
+
+```ts
+on: {
+  SELECT: [
+    {
+      when: 'isEnabled',
+      do: (ctx, payload) => ctx.selectItem(payload.id),  // Single inline action
+    },
+  ],
+
+  SUBMIT: [
+    {
+      when: 'isValid',
+      do: [
+        'logSubmit',                              // Named action
+        (ctx, payload) => ctx.submit(payload),    // Inline function
+        'showSuccess',                            // Named action
+      ],
+    },
   ],
 }
 ```
@@ -206,7 +254,7 @@ Execute multiple actions per event:
 
 ```ts
 on: {
-  SELECT: ['highlight', 'select', 'close'],  // Array of actions
+  SELECT: ['highlight', 'select', 'close'],  // Array of named actions
 
   CONFIRM: [
     { when: 'isValid', do: ['save', 'close', 'notify'] },
@@ -351,7 +399,15 @@ createMachine<{
 ```ts
 import { createMachine, effect } from 'controlled-machine'
 import { useMachine } from 'controlled-machine/react'
-import type { Machine, Send, Rule, Handler, UseMachineOptions } from 'controlled-machine'
+import type {
+  Machine,
+  Send,
+  Rule,
+  Handler,
+  ActionItem,   // Named action or inline function
+  GuardItem,    // Named guard or inline function
+  UseMachineOptions,
+} from 'controlled-machine'
 ```
 
 ---
