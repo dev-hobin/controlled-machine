@@ -615,4 +615,91 @@ describe('Vanilla: createMachine', () => {
       expect(log).toEqual(['valid'])
     })
   })
+
+  // --------------------------------------------
+  // Guard Arrays in when Field
+  // --------------------------------------------
+
+  describe('Guard Arrays in when Field', () => {
+    it('all guards must pass for action to execute', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { a: boolean; b: boolean }
+        events: { CHECK: undefined }
+        actions: 'action'
+      }>({
+        on: {
+          CHECK: [
+            { when: [(ctx) => ctx.a, (ctx) => ctx.b], do: 'action' },
+          ],
+        },
+        actions: { action },
+      })
+
+      // Both false - action not called
+      machine.send('CHECK', { a: false, b: false })
+      expect(action).not.toHaveBeenCalled()
+
+      // Only a true - action not called
+      machine.send('CHECK', { a: true, b: false })
+      expect(action).not.toHaveBeenCalled()
+
+      // Only b true - action not called
+      machine.send('CHECK', { a: false, b: true })
+      expect(action).not.toHaveBeenCalled()
+
+      // Both true - action called
+      machine.send('CHECK', { a: true, b: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('mixed string and inline guards in array', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { a: boolean; b: boolean }
+        events: { CHECK: undefined }
+        actions: 'action'
+        guards: 'isA'
+      }>({
+        on: {
+          CHECK: [
+            { when: ['isA', (ctx) => ctx.b], do: 'action' },
+          ],
+        },
+        actions: { action },
+        guards: { isA: (ctx) => ctx.a },
+      })
+
+      machine.send('CHECK', { a: true, b: false })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('CHECK', { a: true, b: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('guard array in always rules', () => {
+      const clamp = vi.fn()
+
+      const machine = createMachine<{
+        input: { value: number; enabled: boolean; clamp: (v: number) => void }
+      }>({
+        always: [
+          {
+            when: [(ctx) => ctx.enabled, (ctx) => ctx.value > 100],
+            do: (ctx) => ctx.clamp(100),
+          },
+        ],
+      })
+
+      // Not enabled - no clamp
+      machine.evaluate({ value: 150, enabled: false, clamp })
+      expect(clamp).not.toHaveBeenCalled()
+
+      // Enabled and value > 100 - clamp
+      machine.evaluate({ value: 150, enabled: true, clamp })
+      expect(clamp).toHaveBeenCalledWith(100)
+    })
+  })
 })

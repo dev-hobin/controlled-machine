@@ -21,13 +21,19 @@ export type ActionItem<
   TActions extends string = string,
 > = TActions | ((context: TContext, payload: TPayload) => void)
 
+export type GuardItem<
+  TContext,
+  TPayload = undefined,
+  TGuards extends string = string,
+> = TGuards | ((context: TContext, payload: TPayload) => boolean)
+
 export type Rule<
   TContext,
   TPayload = undefined,
   TActions extends string = string,
   TGuards extends string = string,
 > = {
-  when?: ((context: TContext, payload: TPayload) => boolean) | TGuards
+  when?: GuardItem<TContext, TPayload, TGuards> | GuardItem<TContext, TPayload, TGuards>[]
   do: ActionItem<TContext, TPayload, TActions> | ActionItem<TContext, TPayload, TActions>[]
 }
 
@@ -213,6 +219,26 @@ export function executeRuleActions<TContext, TPayload>(
   }
 }
 
+export function evaluateGuards<TContext, TPayload>(
+  guardItems: GuardItem<TContext, TPayload> | GuardItem<TContext, TPayload>[] | undefined,
+  guards: Record<string, (context: TContext, payload?: TPayload) => boolean>,
+  context: TContext,
+  payload: TPayload,
+): boolean {
+  if (!guardItems) return true
+
+  const items = Array.isArray(guardItems) ? guardItems : [guardItems]
+
+  for (const item of items) {
+    const guardFn = typeof item === 'function' ? item : guards[item]
+    if (guardFn && !guardFn(context, payload)) {
+      return false
+    }
+  }
+
+  return true
+}
+
 export function isRuleArray<TContext, TPayload, TActions extends string>(
   handler: Handler<TContext, TPayload, TActions>,
 ): handler is Rule<TContext, TPayload, TActions>[] {
@@ -239,10 +265,7 @@ export function executeHandler<TContext, TPayload>(
 
   // Rule array
   for (const rule of handler as Rule<TContext, TPayload>[]) {
-    const guardFn =
-      typeof rule.when === 'string' ? guards[rule.when] : rule.when
-
-    if (!guardFn || guardFn(context, payload)) {
+    if (evaluateGuards(rule.when, guards, context, payload)) {
       executeRuleActions(rule.do, actions, context, payload)
       break
     }
@@ -435,10 +458,7 @@ export function createMachine<T extends MachineTypes>(
         (context: Context<T>) => boolean
       >
       for (const rule of config.always) {
-        const guardFn =
-          typeof rule.when === 'string' ? guardsMap[rule.when] : rule.when
-
-        if (!guardFn || guardFn(context, undefined)) {
+        if (evaluateGuards(rule.when, guardsMap, context, undefined)) {
           executeRuleActions(rule.do, actionsMap, context, undefined)
           break
         }

@@ -18,6 +18,7 @@ import {
   type Guards,
   computeValues,
   executeRuleActions,
+  evaluateGuards,
   executeHandler,
   processEffects,
   clearEffectStore,
@@ -106,10 +107,7 @@ export function useMachine<T extends MachineTypes>(
     const actionsMap = mergedActions as Record<string, (context: Context<T>) => void>
     const guardsMap = mergedGuards as Record<string, (context: Context<T>) => boolean>
     for (const rule of always) {
-      const guardFn =
-        typeof rule.when === 'string' ? guardsMap[rule.when] : rule.when
-
-      if (!guardFn || guardFn(context, undefined)) {
+      if (evaluateGuards(rule.when, guardsMap, context, undefined)) {
         executeRuleActions(rule.do, actionsMap, context, undefined)
         break
       }

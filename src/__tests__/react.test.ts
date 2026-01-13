@@ -601,4 +601,51 @@ describe('React: useMachine', () => {
       expect(result.current.value).toBe('hello')
     })
   })
+
+  // --------------------------------------------
+  // Guard Arrays in when Field
+  // --------------------------------------------
+
+  describe('Guard Arrays in when Field', () => {
+    it('all guards must pass for action to execute', () => {
+      const machine = createMachine<{
+        input: { a: boolean; b: boolean; count: number; setCount: (c: number) => void }
+        events: { INCREMENT: undefined }
+        actions: 'increment'
+      }>({
+        on: {
+          INCREMENT: [
+            { when: [(ctx) => ctx.a, (ctx) => ctx.b], do: 'increment' },
+          ],
+        },
+        actions: { increment: (ctx) => ctx.setCount(ctx.count + 1) },
+      })
+
+      const { result } = renderHook(() => {
+        const [count, setCount] = useState(0)
+        const [a, setA] = useState(false)
+        const [b, setB] = useState(false)
+        return {
+          ...useMachine(machine, { input: { a, b, count, setCount } }),
+          count,
+          setA,
+          setB,
+        }
+      })
+
+      // Both false - no increment
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.count).toBe(0)
+
+      // Enable a only
+      act(() => result.current.setA(true))
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.count).toBe(0)
+
+      // Enable both
+      act(() => result.current.setB(true))
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.count).toBe(1)
+    })
+  })
 })
