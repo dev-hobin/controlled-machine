@@ -4,68 +4,134 @@ A controlled state machine where **state lives outside the machine**.
 
 Machine defines **what** happens. Your component owns **the state**.
 
-## The Killer Example
+---
 
-A reusable dropdown machine — logic lives in the machine, DOM handling in your component:
+A keyboard-navigable combobox — complex interaction logic in the machine, rendering in your component:
 
 ```ts
-// dropdown-machine.ts — Pure logic, no DOM dependencies
-const dropdownMachine = createMachine<{
-  input: { isOpen: boolean; onOpenChange: (v: boolean) => void }
-  events: { OPEN: undefined; CLOSE: undefined; TOGGLE: undefined }
-  actions: 'open' | 'close' | 'focusTrigger'
-  guards: 'isOpen'
+// combobox-machine.ts — Pure logic, no DOM dependencies
+const comboboxMachine = createMachine<{
+  input: {
+    isOpen: boolean
+    setIsOpen: (v: boolean) => void
+    highlightedIndex: number
+    setHighlightedIndex: (i: number) => void
+    selectedValue: string | null
+    onSelect: (v: string) => void
+    items: { value: string; label: string }[]
+  }
+  events: {
+    TOGGLE: undefined
+    CLOSE: undefined
+    HIGHLIGHT_NEXT: undefined
+    HIGHLIGHT_PREV: undefined
+    SELECT_HIGHLIGHTED: undefined
+    SELECT: { value: string }
+  }
+  computed: {
+    highlightedItem: { value: string; label: string } | null
+    selectedLabel: string
+  }
+  guards: 'isOpen' | 'canGoNext' | 'canGoPrev' | 'hasHighlighted'
 }>({
-  on: {
-    OPEN: [{ when: 'isOpen', do: [] }, { do: 'open' }],
-    CLOSE: [{ when: 'isOpen', do: ['close', 'focusTrigger'] }],
-    TOGGLE: [{ when: 'isOpen', do: 'close' }, { do: 'open' }],
-  },
-  actions: {
-    open: (ctx) => ctx.onOpenChange(true),
-    close: (ctx) => ctx.onOpenChange(false),
-    focusTrigger: () => {},  // Default: noop
+  computed: {
+    highlightedItem: (input) => input.items[input.highlightedIndex] ?? null,
+    selectedLabel: (input) =>
+      input.items.find((i) => i.value === input.selectedValue)?.label ?? 'Select...',
   },
   guards: {
     isOpen: (ctx) => ctx.isOpen,
+    canGoNext: (ctx) => ctx.highlightedIndex < ctx.items.length - 1,
+    canGoPrev: (ctx) => ctx.highlightedIndex > 0,
+    hasHighlighted: (ctx) => ctx.highlightedItem !== null,
+  },
+  on: {
+    TOGGLE: [
+      { when: 'isOpen', do: (ctx) => ctx.setIsOpen(false) },
+      { do: (ctx) => ctx.setIsOpen(true) },
+    ],
+    CLOSE: [
+      (ctx) => ctx.setIsOpen(false),
+      (ctx) => ctx.setHighlightedIndex(-1),
+    ],
+    HIGHLIGHT_NEXT: [
+      { when: (ctx) => !ctx.isOpen, do: (ctx) => ctx.setIsOpen(true) },
+      { when: 'canGoNext', do: (ctx) => ctx.setHighlightedIndex(ctx.highlightedIndex + 1) },
+    ],
+    HIGHLIGHT_PREV: [
+      { when: 'canGoPrev', do: (ctx) => ctx.setHighlightedIndex(ctx.highlightedIndex - 1) },
+    ],
+    SELECT_HIGHLIGHTED: [
+      {
+        when: 'hasHighlighted',
+        do: [
+          (ctx) => ctx.onSelect(ctx.highlightedItem!.value),
+          (ctx) => ctx.setIsOpen(false),
+        ],
+      },
+    ],
+    SELECT: [
+      (ctx, { value }) => ctx.onSelect(value),
+      (ctx) => ctx.setIsOpen(false),
+    ],
   },
 })
 ```
 
 ```tsx
-// Dropdown.tsx — Component provides DOM implementation
-function Dropdown() {
+// Combobox.tsx — Component owns state and renders UI
+function Combobox({ items, value, onChange }) {
   const [isOpen, setIsOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
-  const { send } = useMachine(dropdownMachine, {
-    input: { isOpen, onOpenChange: setIsOpen },
-    actions: {
-      // Override: provide actual DOM implementation
-      focusTrigger: () => triggerRef.current?.focus(),
+  const { send, computed } = useMachine(comboboxMachine, {
+    input: {
+      isOpen,
+      setIsOpen,
+      highlightedIndex,
+      setHighlightedIndex,
+      selectedValue: value,
+      onSelect: onChange,
+      items,
     },
   })
 
   return (
-    <>
-      <button ref={triggerRef} onClick={() => send('TOGGLE')}>
-        Menu
+    <div>
+      <button
+        onClick={() => send('TOGGLE')}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') send('HIGHLIGHT_NEXT')
+          if (e.key === 'ArrowUp') send('HIGHLIGHT_PREV')
+          if (e.key === 'Enter') send('SELECT_HIGHLIGHTED')
+          if (e.key === 'Escape') send('CLOSE')
+        }}
+      >
+        {computed.selectedLabel}
       </button>
       {isOpen && (
         <ul>
-          <li onClick={() => send('CLOSE')}>Item 1</li>
+          {items.map((item, i) => (
+            <li
+              key={item.value}
+              data-highlighted={i === highlightedIndex}
+              onClick={() => send('SELECT', { value: item.value })}
+            >
+              {item.label}
+            </li>
+          ))}
         </ul>
       )}
-    </>
+    </div>
   )
 }
 ```
 
 **Why this matters:**
-- Machine is **pure and testable** — no refs, no DOM
-- Component **owns its state** — React's controlled pattern
-- Override **only what you need** — `focusTrigger` gets real implementation
-- Same machine, **different UIs** — reuse logic across components
+- Machine handles **keyboard navigation, conditional transitions** — component just renders
+- **Computed values** derive data, **guards** control flow — clear separation
+- **Conditional rules** (`when`/`do`) express complex logic declaratively
+- Same machine works with **any UI** — swap the component, keep the logic
 
 ---
 
