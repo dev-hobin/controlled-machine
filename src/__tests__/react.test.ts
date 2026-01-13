@@ -522,4 +522,83 @@ describe('React: useMachine', () => {
       expect(action3).toHaveBeenCalledTimes(1)
     })
   })
+
+  // --------------------------------------------
+  // Inline Functions in do Field
+  // --------------------------------------------
+
+  describe('Inline Functions in do Field', () => {
+    it('inline function in do works with useMachine', () => {
+      const machine = createMachine<{
+        input: { count: number; setCount: (c: number) => void }
+        events: { INCREMENT: undefined }
+      }>({
+        on: {
+          INCREMENT: [{ do: (ctx) => ctx.setCount(ctx.count + 1) }],
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [count, setCount] = useState(0)
+        return { ...useMachine(machine, { input: { count, setCount } }), count }
+      })
+
+      expect(result.current.count).toBe(0)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.count).toBe(1)
+    })
+
+    it('mixed string and inline functions in do array', () => {
+      const log: string[] = []
+
+      const machine = createMachine<{
+        input: { log: string[] }
+        events: { ACTION: undefined }
+        actions: 'action1' | 'action2'
+      }>({
+        on: {
+          ACTION: [
+            {
+              do: [
+                'action1',
+                (ctx) => ctx.log.push('inline'),
+                'action2',
+              ],
+            },
+          ],
+        },
+        actions: {
+          action1: (ctx) => ctx.log.push('action1'),
+          action2: (ctx) => ctx.log.push('action2'),
+        },
+      })
+
+      const { result } = renderHook(() =>
+        useMachine(machine, { input: { log } })
+      )
+
+      act(() => result.current.send('ACTION'))
+      expect(log).toEqual(['action1', 'inline', 'action2'])
+    })
+
+    it('payload passed to inline function in do', () => {
+      const machine = createMachine<{
+        input: { value: string; setValue: (v: string) => void }
+        events: { SET: { value: string } }
+      }>({
+        on: {
+          SET: [{ do: (ctx, payload) => ctx.setValue(payload.value) }],
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [value, setValue] = useState('')
+        return { ...useMachine(machine, { input: { value, setValue } }), value }
+      })
+
+      act(() => result.current.send('SET', { value: 'hello' }))
+      expect(result.current.value).toBe('hello')
+    })
+  })
 })

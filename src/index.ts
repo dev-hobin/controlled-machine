@@ -15,6 +15,12 @@
 // Types
 // ============================================
 
+export type ActionItem<
+  TContext,
+  TPayload = undefined,
+  TActions extends string = string,
+> = TActions | ((context: TContext, payload: TPayload) => void)
+
 export type Rule<
   TContext,
   TPayload = undefined,
@@ -22,7 +28,7 @@ export type Rule<
   TGuards extends string = string,
 > = {
   when?: ((context: TContext, payload: TPayload) => boolean) | TGuards
-  do: TActions | TActions[]
+  do: ActionItem<TContext, TPayload, TActions> | ActionItem<TContext, TPayload, TActions>[]
 }
 
 export type Handler<
@@ -190,6 +196,23 @@ export function executeActions<TContext, TPayload>(
   }
 }
 
+export function executeRuleActions<TContext, TPayload>(
+  actionItems: ActionItem<TContext, TPayload> | ActionItem<TContext, TPayload>[],
+  actions: Record<string, (context: TContext, payload?: TPayload) => void>,
+  context: TContext,
+  payload: TPayload,
+): void {
+  const items = Array.isArray(actionItems) ? actionItems : [actionItems]
+
+  for (const item of items) {
+    if (typeof item === 'function') {
+      item(context, payload)
+    } else {
+      actions[item]?.(context, payload)
+    }
+  }
+}
+
 export function isRuleArray<TContext, TPayload, TActions extends string>(
   handler: Handler<TContext, TPayload, TActions>,
 ): handler is Rule<TContext, TPayload, TActions>[] {
@@ -220,7 +243,7 @@ export function executeHandler<TContext, TPayload>(
       typeof rule.when === 'string' ? guards[rule.when] : rule.when
 
     if (!guardFn || guardFn(context, payload)) {
-      executeActions(rule.do, actions, context, payload)
+      executeRuleActions(rule.do, actions, context, payload)
       break
     }
   }
@@ -402,8 +425,8 @@ export function createMachine<T extends MachineTypes>(
     const effectHelpers = createEffectHelpersWithInput(input)
 
     // always
-    if (config.always && config.actions) {
-      const actionsMap = config.actions as Record<
+    if (config.always) {
+      const actionsMap = (config.actions ?? {}) as Record<
         string,
         (context: Context<T>) => void
       >
@@ -416,7 +439,7 @@ export function createMachine<T extends MachineTypes>(
           typeof rule.when === 'string' ? guardsMap[rule.when] : rule.when
 
         if (!guardFn || guardFn(context, undefined)) {
-          executeActions(rule.do, actionsMap, context, undefined)
+          executeRuleActions(rule.do, actionsMap, context, undefined)
           break
         }
       }

@@ -507,4 +507,112 @@ describe('Vanilla: createMachine', () => {
       expect(action2).toHaveBeenCalledTimes(1)
     })
   })
+
+  // --------------------------------------------
+  // Inline Functions in do Field
+  // --------------------------------------------
+
+  describe('Inline Functions in do Field', () => {
+    it('single inline function in do', () => {
+      const log: string[] = []
+
+      const machine = createMachine<{
+        input: { log: string[] }
+        events: { ACTION: undefined }
+      }>({
+        on: {
+          ACTION: [{ do: (ctx) => ctx.log.push('inline') }],
+        },
+      })
+
+      machine.send('ACTION', { log })
+      expect(log).toEqual(['inline'])
+    })
+
+    it('mixed string and inline functions in do array', () => {
+      const log: string[] = []
+
+      const machine = createMachine<{
+        input: { log: string[] }
+        events: { ACTION: undefined }
+        actions: 'action1' | 'action2'
+      }>({
+        on: {
+          ACTION: [
+            {
+              do: [
+                'action1',
+                (ctx) => ctx.log.push('inline'),
+                'action2',
+              ],
+            },
+          ],
+        },
+        actions: {
+          action1: (ctx) => ctx.log.push('action1'),
+          action2: (ctx) => ctx.log.push('action2'),
+        },
+      })
+
+      machine.send('ACTION', { log })
+      expect(log).toEqual(['action1', 'inline', 'action2'])
+    })
+
+    it('payload is passed to inline function in do', () => {
+      const select = vi.fn()
+
+      const machine = createMachine<{
+        input: { select: (id: string) => void }
+        events: { SELECT: { id: string } }
+      }>({
+        on: {
+          SELECT: [{ do: (ctx, payload) => ctx.select(payload.id) }],
+        },
+      })
+
+      machine.send('SELECT', { select }, { id: 'item-1' })
+      expect(select).toHaveBeenCalledWith('item-1')
+    })
+
+    it('inline function in always rules', () => {
+      const clamp = vi.fn()
+
+      const machine = createMachine<{
+        input: { value: number; clamp: (v: number) => void }
+      }>({
+        always: [
+          {
+            when: (ctx) => ctx.value > 100,
+            do: (ctx) => ctx.clamp(100),
+          },
+        ],
+      })
+
+      machine.evaluate({ value: 150, clamp })
+      expect(clamp).toHaveBeenCalledWith(100)
+    })
+
+    it('inline function with guard in do', () => {
+      const log: string[] = []
+
+      const machine = createMachine<{
+        input: { isValid: boolean; log: string[] }
+        events: { SUBMIT: undefined }
+      }>({
+        on: {
+          SUBMIT: [
+            { when: (ctx) => !ctx.isValid, do: (ctx) => ctx.log.push('invalid') },
+            { do: (ctx) => ctx.log.push('valid') },
+          ],
+        },
+      })
+
+      machine.send('SUBMIT', { isValid: false, log })
+      expect(log).toEqual(['invalid'])
+
+      log.length = 0
+      machine.send('SUBMIT', { isValid: true, log })
+      expect(log).toEqual(['valid'])
+    })
+  })
 })
