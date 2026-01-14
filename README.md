@@ -1,13 +1,14 @@
 # Controlled Machine
 
-Manage your React UI state cleanly.
-
-- Separate logic from UI
-- Declarative state transitions
-- Full TypeScript support
+A controlled state machine with **internal state management**.
+Machine owns **its own state**. Your component passes **external data**.
 
 ```bash
 npm install controlled-machine
+# or
+yarn add controlled-machine
+# or
+pnpm add controlled-machine
 ```
 
 ---
@@ -435,6 +436,30 @@ createMachine<{
 { when: ['isEnabled', 'canIncrement', (ctx) => !ctx.isLoading], do: ... }
 ```
 
+### Guard Utilities
+
+Compose guards with `not`, `and`, `or`:
+
+```ts
+import { createMachine, not, and, or } from 'controlled-machine'
+
+// not() - negate a guard
+{ when: not('isDisabled'), do: 'handleClick' }
+{ when: not((ctx) => ctx.loading), do: 'submit' }
+
+// and() - all guards must pass
+{ when: and(['hasValue', 'isValid']), do: 'submit' }
+
+// or() - at least one guard must pass
+{ when: or(['isAdmin', 'hasPermission']), do: 'delete' }
+
+// Nested composition
+{ when: not(or(['isLoading', 'isDisabled'])), do: 'handleClick' }
+
+// Mixed named and inline guards
+{ when: and(['hasValue', (ctx) => ctx.count > 0]), do: 'action' }
+```
+
 ---
 
 ## Computed Values
@@ -695,7 +720,7 @@ createMachine<{
 ### Exports
 
 ```ts
-import { createMachine, effect } from 'controlled-machine'
+import { createMachine, effect, not, and, or } from 'controlled-machine'
 import { useMachine } from 'controlled-machine/react'
 import type {
   MachineTypes,

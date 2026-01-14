@@ -1,6 +1,6 @@
 {
   "name": "controlled-machine",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "A controlled state machine where state lives outside the machine",
   "type": "module",
   "sideEffects": false,
