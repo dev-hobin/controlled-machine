@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { createMachine } from '../index'
+import { createMachine, not, and, or } from '../index'
 
 describe('Vanilla: createMachine', () => {
   // ============================================
@@ -531,6 +531,161 @@ describe('Vanilla: createMachine', () => {
       expect(action).not.toHaveBeenCalled()
 
       machine.send('CHECK', { a: true, b: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('not() negates a named guard', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { disabled: boolean }
+        events: { CLICK: undefined }
+        actions: 'handleClick'
+        guards: 'isDisabled'
+      }>({
+        on: { CLICK: [{ when: not('isDisabled'), do: 'handleClick' }] },
+        actions: { handleClick: action },
+        guards: { isDisabled: (ctx) => ctx.disabled },
+      })
+
+      machine.send('CLICK', { disabled: true })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('CLICK', { disabled: false })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('not() negates an inline guard', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { loading: boolean }
+        events: { SUBMIT: undefined }
+        actions: 'submit'
+      }>({
+        on: { SUBMIT: [{ when: not((ctx) => ctx.loading), do: 'submit' }] },
+        actions: { submit: action },
+      })
+
+      machine.send('SUBMIT', { loading: true })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('SUBMIT', { loading: false })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('and() combines guards with AND logic', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { hasValue: boolean; isValid: boolean }
+        events: { SUBMIT: undefined }
+        actions: 'submit'
+        guards: 'hasValue' | 'isValid'
+      }>({
+        on: { SUBMIT: [{ when: and(['hasValue', 'isValid']), do: 'submit' }] },
+        actions: { submit: action },
+        guards: {
+          hasValue: (ctx) => ctx.hasValue,
+          isValid: (ctx) => ctx.isValid,
+        },
+      })
+
+      machine.send('SUBMIT', { hasValue: false, isValid: false })
+      machine.send('SUBMIT', { hasValue: true, isValid: false })
+      machine.send('SUBMIT', { hasValue: false, isValid: true })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('SUBMIT', { hasValue: true, isValid: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('or() combines guards with OR logic', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { isAdmin: boolean; hasPermission: boolean }
+        events: { DELETE: undefined }
+        actions: 'delete'
+        guards: 'isAdmin' | 'hasPermission'
+      }>({
+        on: { DELETE: [{ when: or(['isAdmin', 'hasPermission']), do: 'delete' }] },
+        actions: { delete: action },
+        guards: {
+          isAdmin: (ctx) => ctx.isAdmin,
+          hasPermission: (ctx) => ctx.hasPermission,
+        },
+      })
+
+      machine.send('DELETE', { isAdmin: false, hasPermission: false })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('DELETE', { isAdmin: true, hasPermission: false })
+      expect(action).toHaveBeenCalledTimes(1)
+
+      vi.clearAllMocks()
+
+      machine.send('DELETE', { isAdmin: false, hasPermission: true })
+      expect(action).toHaveBeenCalledTimes(1)
+
+      vi.clearAllMocks()
+
+      machine.send('DELETE', { isAdmin: true, hasPermission: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('guard utilities can be nested', () => {
+      const action = vi.fn()
+
+      // not(or([a, b])) = neither a nor b
+      const machine = createMachine<{
+        input: { isLoading: boolean; isDisabled: boolean }
+        events: { CLICK: undefined }
+        actions: 'handleClick'
+        guards: 'isLoading' | 'isDisabled'
+      }>({
+        on: {
+          CLICK: [{ when: not(or(['isLoading', 'isDisabled'])), do: 'handleClick' }],
+        },
+        actions: { handleClick: action },
+        guards: {
+          isLoading: (ctx) => ctx.isLoading,
+          isDisabled: (ctx) => ctx.isDisabled,
+        },
+      })
+
+      machine.send('CLICK', { isLoading: true, isDisabled: false })
+      machine.send('CLICK', { isLoading: false, isDisabled: true })
+      machine.send('CLICK', { isLoading: true, isDisabled: true })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('CLICK', { isLoading: false, isDisabled: false })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('guard utilities work with mixed named and inline guards', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { hasValue: boolean; count: number }
+        events: { CHECK: undefined }
+        actions: 'action'
+        guards: 'hasValue'
+      }>({
+        on: {
+          CHECK: [
+            { when: and(['hasValue', (ctx) => ctx.count > 0]), do: 'action' },
+          ],
+        },
+        actions: { action },
+        guards: { hasValue: (ctx) => ctx.hasValue },
+      })
+
+      machine.send('CHECK', { hasValue: true, count: 0 })
+      machine.send('CHECK', { hasValue: false, count: 5 })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('CHECK', { hasValue: true, count: 5 })
       expect(action).toHaveBeenCalledTimes(1)
     })
   })

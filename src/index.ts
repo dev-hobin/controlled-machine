@@ -39,13 +39,28 @@ export type ActionItem<
 > = TActions | ((context: TContext, payload: TPayload, assign: AssignFn<TInternal>) => void)
 
 /**
- * GuardItem - can be a named guard string or inline predicate function
+ * GuardComposer - composed guard using not/and/or utilities
+ */
+export type GuardComposer<
+  TContext,
+  TPayload = undefined,
+  TGuards extends string = string,
+> = {
+  __type: 'not' | 'and' | 'or'
+  __guards: GuardItem<TContext, TPayload, TGuards>[]
+}
+
+/**
+ * GuardItem - can be a named guard string, inline predicate function, or composed guard
  */
 export type GuardItem<
   TContext,
   TPayload = undefined,
   TGuards extends string = string,
-> = TGuards | ((context: TContext, payload: TPayload) => boolean)
+> =
+  | TGuards
+  | ((context: TContext, payload: TPayload) => boolean)
+  | GuardComposer<TContext, TPayload, TGuards>
 
 /**
  * Rule - conditional action with optional guard(s)
@@ -134,6 +149,58 @@ export function effect<TContext, TEvents extends EventsConfig, TWatched>(
   config: Effect<TContext, TEvents, TWatched>,
 ): Effect<TContext, TEvents, TWatched> {
   return config
+}
+
+// ============================================
+// Guard Utilities - not, and, or
+// ============================================
+
+/**
+ * Negate a guard - returns true when the guard returns false
+ * @example
+ * on: { CLICK: [{ when: not('isDisabled'), do: 'handleClick' }] }
+ * on: { SUBMIT: [{ when: not(ctx => ctx.loading), do: 'submit' }] }
+ */
+export function not<
+  TContext = unknown,
+  TPayload = undefined,
+  TGuards extends string = string,
+>(
+  guard: GuardItem<TContext, TPayload, TGuards>,
+): GuardComposer<TContext, TPayload, TGuards> {
+  return { __type: 'not', __guards: [guard] }
+}
+
+/**
+ * Combine guards with AND logic - returns true only if ALL guards return true
+ * @example
+ * on: { SUBMIT: [{ when: and(['hasValue', 'isValid']), do: 'submit' }] }
+ * on: { DELETE: [{ when: and(['isSelected', ctx => ctx.canDelete]), do: 'delete' }] }
+ */
+export function and<
+  TContext = unknown,
+  TPayload = undefined,
+  TGuards extends string = string,
+>(
+  guards: GuardItem<TContext, TPayload, TGuards>[],
+): GuardComposer<TContext, TPayload, TGuards> {
+  return { __type: 'and', __guards: guards }
+}
+
+/**
+ * Combine guards with OR logic - returns true if ANY guard returns true
+ * @example
+ * on: { CLOSE: [{ when: or(['isEscapeKey', 'isClickOutside']), do: 'close' }] }
+ * on: { SUBMIT: [{ when: or([ctx => ctx.isAdmin, 'hasPermission']), do: 'submit' }] }
+ */
+export function or<
+  TContext = unknown,
+  TPayload = undefined,
+  TGuards extends string = string,
+>(
+  guards: GuardItem<TContext, TPayload, TGuards>[],
+): GuardComposer<TContext, TPayload, TGuards> {
+  return { __type: 'or', __guards: guards }
 }
 
 /** Event configuration - event name to payload type mapping */
@@ -390,7 +457,63 @@ export function executeRuleActions<TContext, TPayload, TInternal>(
 }
 
 /**
- * Evaluate guard items (named guards or inline predicates)
+ * Check if a value is a GuardComposer (composed guard)
+ */
+function isGuardComposer<TContext, TPayload, TGuards extends string>(
+  item: GuardItem<TContext, TPayload, TGuards>,
+): item is GuardComposer<TContext, TPayload, TGuards> {
+  return (
+    typeof item === 'object' &&
+    item !== null &&
+    '__type' in item &&
+    '__guards' in item
+  )
+}
+
+/**
+ * Evaluate a single guard item (named guard, inline function, or composed guard)
+ */
+function evaluateSingleGuard<TContext, TPayload>(
+  item: GuardItem<TContext, TPayload>,
+  guards: Record<string, (context: TContext, payload?: TPayload) => boolean>,
+  context: TContext,
+  payload: TPayload,
+): boolean {
+  // Composed guard (not/and/or)
+  if (isGuardComposer(item)) {
+    switch (item.__type) {
+      case 'not': {
+        // not() takes a single guard, negate its result
+        const innerResult = evaluateSingleGuard(item.__guards[0], guards, context, payload)
+        return !innerResult
+      }
+      case 'and': {
+        // and() - all guards must return true
+        return item.__guards.every((g) =>
+          evaluateSingleGuard(g, guards, context, payload),
+        )
+      }
+      case 'or': {
+        // or() - at least one guard must return true
+        return item.__guards.some((g) =>
+          evaluateSingleGuard(g, guards, context, payload),
+        )
+      }
+    }
+  }
+
+  // Inline function guard
+  if (typeof item === 'function') {
+    return item(context, payload)
+  }
+
+  // Named guard (string)
+  const guardFn = guards[item as string]
+  return guardFn ? guardFn(context, payload) : true
+}
+
+/**
+ * Evaluate guard items (named guards, inline predicates, or composed guards)
  * Uses AND logic - all guards must pass for result to be true
  */
 export function evaluateGuards<TContext, TPayload>(
@@ -402,8 +525,7 @@ export function evaluateGuards<TContext, TPayload>(
   if (!guardItems) return true
 
   for (const item of toArray(guardItems)) {
-    const guardFn = typeof item === 'function' ? item : guards[item]
-    if (guardFn && !guardFn(context, payload)) {
+    if (!evaluateSingleGuard(item, guards, context, payload)) {
       return false
     }
   }
