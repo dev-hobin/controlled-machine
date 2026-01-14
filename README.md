@@ -1,24 +1,24 @@
 # Controlled Machine
 
-A controlled state machine where **state lives outside the machine**.
+A controlled state machine with **internal state management**.
 
-Machine defines **what** happens. Your component owns **the state**.
+Machine owns **its own state**. Your component passes **external data**.
 
 ---
 
-A keyboard-navigable combobox — complex interaction logic in the machine, rendering in your component:
+A keyboard-navigable combobox — machine manages `isOpen` and `highlightedIndex` internally:
 
 ```ts
-// combobox-machine.ts — Pure logic, no DOM dependencies
+// combobox-machine.ts — Pure logic, manages UI state internally
 const comboboxMachine = createMachine<{
   input: {
-    isOpen: boolean
-    setIsOpen: (v: boolean) => void
-    highlightedIndex: number
-    setHighlightedIndex: (i: number) => void
     selectedValue: string | null
     onSelect: (v: string) => void
     items: { value: string; label: string }[]
+  }
+  internal: {
+    isOpen: boolean
+    highlightedIndex: number
   }
   events: {
     TOGGLE: undefined
@@ -34,10 +34,14 @@ const comboboxMachine = createMachine<{
   }
   guards: 'isOpen' | 'canGoNext' | 'canGoPrev' | 'hasHighlighted'
 }>({
+  internal: {
+    isOpen: false,
+    highlightedIndex: -1,
+  },
   computed: {
-    highlightedItem: (input) => input.items[input.highlightedIndex] ?? null,
-    selectedLabel: (input) =>
-      input.items.find((i) => i.value === input.selectedValue)?.label ?? 'Select...',
+    highlightedItem: (ctx) => ctx.items[ctx.highlightedIndex] ?? null,
+    selectedLabel: (ctx) =>
+      ctx.items.find((i) => i.value === ctx.selectedValue)?.label ?? 'Select...',
   },
   guards: {
     isOpen: (ctx) => ctx.isOpen,
@@ -47,49 +51,39 @@ const comboboxMachine = createMachine<{
   },
   on: {
     TOGGLE: [
-      { when: 'isOpen', do: (ctx) => ctx.setIsOpen(false) },
-      { do: (ctx) => ctx.setIsOpen(true) },
+      { when: 'isOpen', do: (_, __, assign) => assign({ isOpen: false }) },
+      { do: (_, __, assign) => assign({ isOpen: true }) },
     ],
-    CLOSE: [
-      (ctx) => ctx.setIsOpen(false),
-      (ctx) => ctx.setHighlightedIndex(-1),
-    ],
+    CLOSE: (_, __, assign) => assign({ isOpen: false, highlightedIndex: -1 }),
     HIGHLIGHT_NEXT: [
-      { when: (ctx) => !ctx.isOpen, do: (ctx) => ctx.setIsOpen(true) },
-      { when: 'canGoNext', do: (ctx) => ctx.setHighlightedIndex(ctx.highlightedIndex + 1) },
+      { when: (ctx) => !ctx.isOpen, do: (_, __, assign) => assign({ isOpen: true }) },
+      { when: 'canGoNext', do: (ctx, _, assign) => assign({ highlightedIndex: ctx.highlightedIndex + 1 }) },
     ],
     HIGHLIGHT_PREV: [
-      { when: 'canGoPrev', do: (ctx) => ctx.setHighlightedIndex(ctx.highlightedIndex - 1) },
+      { when: 'canGoPrev', do: (ctx, _, assign) => assign({ highlightedIndex: ctx.highlightedIndex - 1 }) },
     ],
     SELECT_HIGHLIGHTED: [
       {
         when: 'hasHighlighted',
         do: [
           (ctx) => ctx.onSelect(ctx.highlightedItem!.value),
-          (ctx) => ctx.setIsOpen(false),
+          (_, __, assign) => assign({ isOpen: false }),
         ],
       },
     ],
     SELECT: [
       (ctx, { value }) => ctx.onSelect(value),
-      (ctx) => ctx.setIsOpen(false),
+      (_, __, assign) => assign({ isOpen: false }),
     ],
   },
 })
 ```
 
 ```tsx
-// Combobox.tsx — Component owns state and renders UI
+// Combobox.tsx — No useState needed for isOpen/highlightedIndex!
 function Combobox({ items, value, onChange }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [highlightedIndex, setHighlightedIndex] = useState(-1)
-
-  const { send, computed } = useMachine(comboboxMachine, {
+  const [snapshot, send] = useMachine(comboboxMachine, {
     input: {
-      isOpen,
-      setIsOpen,
-      highlightedIndex,
-      setHighlightedIndex,
       selectedValue: value,
       onSelect: onChange,
       items,
@@ -107,14 +101,14 @@ function Combobox({ items, value, onChange }) {
           if (e.key === 'Escape') send('CLOSE')
         }}
       >
-        {computed.selectedLabel}
+        {snapshot.selectedLabel}
       </button>
-      {isOpen && (
+      {snapshot.isOpen && (
         <ul>
           {items.map((item, i) => (
             <li
               key={item.value}
-              data-highlighted={i === highlightedIndex}
+              data-highlighted={i === snapshot.highlightedIndex}
               onClick={() => send('SELECT', { value: item.value })}
             >
               {item.label}
@@ -128,9 +122,9 @@ function Combobox({ items, value, onChange }) {
 ```
 
 **Why this matters:**
-- Machine handles **keyboard navigation, conditional transitions** — component just renders
-- **Computed values** derive data, **guards** control flow — clear separation
-- **Conditional rules** (`when`/`do`) express complex logic declaratively
+- Machine manages **its own state** (`isOpen`, `highlightedIndex`) — no `useState` clutter
+- **External data** (`value`, `onChange`, `items`) passed via `input`
+- **Snapshot** gives you everything — `internal + computed` in one object
 - Same machine works with **any UI** — swap the component, keep the logic
 
 ---
@@ -145,62 +139,66 @@ npm install controlled-machine
 
 ## Core Concepts
 
-### 1. External State
+### 1. Internal vs Input
 
-Unlike XState where state lives inside the machine, here **you own the state**:
-
-```tsx
-// Your state, your control
-const [isOpen, setIsOpen] = useState(false)
-const [selectedId, setSelectedId] = useState<string | null>(null)
-
-// Machine just defines handlers
-const { send } = useMachine(machine, {
-  input: { isOpen, onOpenChange: setIsOpen, selectedId, onSelect: setSelectedId },
-})
-```
-
-### 2. Declarative Handlers
-
-Define **what** happens on each event with conditional logic:
+**Internal**: Machine-managed state. Lives inside the machine, updated via `assign()`.
 
 ```ts
-on: {
-  SELECT: [
-    { when: 'isDisabled', do: [] },           // Guard: skip if disabled
-    { when: 'hasSelection', do: 'deselect' }, // Conditional action
-    { do: ['select', 'close'] },              // Default: multiple actions
-  ],
+internal: {
+  isOpen: false,
+  count: 0,
 }
 ```
 
-### 3. Actions & Guards Override
-
-Machine provides defaults. Component can override:
+**Input**: External data passed from your component. Props, parent state, etc.
 
 ```ts
-// Machine: default implementations
-const machine = createMachine({
-  actions: {
-    scrollToItem: () => {},  // noop default
-    focusInput: () => {},
-  },
-  guards: {
-    canSelect: (ctx) => !ctx.disabled,
-  },
+// Component passes external data
+const [snapshot, send] = useMachine(machine, {
+  input: { value, onChange, items },  // From props or parent
 })
+```
 
-// Component: real implementations
-useMachine(machine, {
-  input: { ... },
-  actions: {
-    scrollToItem: (ctx) => itemRefs.get(ctx.highlightedId)?.scrollIntoView(),
-    focusInput: () => inputRef.current?.focus(),
+### 2. Flat Context
+
+Inside handlers, `input + internal + computed` merge into one flat `context`:
+
+```ts
+on: {
+  INCREMENT: (ctx, _, assign) => {
+    // ctx.count (internal), ctx.multiplier (input), ctx.doubled (computed)
+    // All at the same level!
+    assign({ count: ctx.count + ctx.multiplier })
   },
-  guards: {
-    canSelect: (ctx) => !ctx.disabled && ctx.items.length > 0,
+}
+```
+
+### 3. Snapshot
+
+`useMachine` returns `[snapshot, send]`. Snapshot contains `internal + computed + state`:
+
+```ts
+const [snapshot, send] = useMachine(machine, { input })
+
+snapshot.isOpen          // from internal
+snapshot.highlightedItem // from computed
+snapshot.state           // FSM state (if defined)
+// Note: input values are NOT in snapshot
+```
+
+### 4. Assign
+
+Update internal state with `assign()` — the third argument in handlers:
+
+```ts
+on: {
+  INCREMENT: (ctx, payload, assign) => {
+    assign({ count: ctx.count + 1 })  // Partial update, other keys preserved
   },
-})
+  RESET: (ctx, _, assign) => {
+    assign({ count: 0, isOpen: false })  // Update multiple keys
+  },
+}
 ```
 
 ---
@@ -211,23 +209,26 @@ useMachine(machine, {
 
 ```ts
 const machine = createMachine<{
-  input: { count: number; setCount: (n: number) => void }
+  input: { multiplier: number }           // External data
+  internal: { count: number }             // Machine-managed state
   events: { INCREMENT: undefined; SET: { value: number } }
-  computed: { isPositive: boolean }
-  actions: 'increment' | 'set'
+  computed: { doubled: number }
+  actions: 'log'
   guards: 'canIncrement'
-  state: 'idle' | 'active'  // Optional: for state-based handlers
+  state: 'idle' | 'active'                // Optional: for FSM
 }>({
+  internal: { count: 0 },
   computed: {
-    isPositive: (input) => input.count > 0,
+    doubled: (ctx) => ctx.count * ctx.multiplier,
   },
   on: {
-    INCREMENT: [{ when: 'canIncrement', do: 'increment' }],
-    SET: 'set',
+    INCREMENT: [
+      { when: 'canIncrement', do: (ctx, _, assign) => assign({ count: ctx.count + 1 }) },
+    ],
+    SET: (ctx, payload, assign) => assign({ count: payload.value }),
   },
   actions: {
-    increment: (ctx) => ctx.setCount(ctx.count + 1),
-    set: (ctx, payload) => ctx.setCount(payload.value),
+    log: (ctx) => console.log(ctx.count),
   },
   guards: {
     canIncrement: (ctx) => ctx.count < 10,
@@ -238,14 +239,43 @@ const machine = createMachine<{
 ### `useMachine(machine, options)`
 
 ```ts
-const { send, computed, state } = useMachine(machine, {
-  input: { count, setCount },
+const [snapshot, send] = useMachine(machine, {
+  input: { multiplier: 2 },
   actions: { /* optional overrides */ },
   guards: { /* optional overrides */ },
 })
 
+// snapshot: internal + computed + state
+snapshot.count    // 0 (internal)
+snapshot.doubled  // 0 (computed)
+
 send('INCREMENT')
+// snapshot.count = 1, snapshot.doubled = 2
+
 send('SET', { value: 5 })
+// snapshot.count = 5, snapshot.doubled = 10
+```
+
+### Factory Pattern
+
+Use a factory function for isolated instances:
+
+```ts
+const createCounterMachine = (initialCount: number) =>
+  createMachine<{
+    internal: { count: number }
+    events: { INCREMENT: undefined }
+    computed: { currentCount: number }
+  }>({
+    internal: { count: initialCount },
+    computed: { currentCount: (ctx) => ctx.count },
+    on: {
+      INCREMENT: (ctx, _, assign) => assign({ count: ctx.count + 1 }),
+    },
+  })
+
+// Each component gets its own instance
+const [snapshot, send] = useMachine(() => createCounterMachine(100))
 ```
 
 ---
@@ -254,36 +284,36 @@ send('SET', { value: 5 })
 
 ### Conditional Handlers
 
-Branch logic with `when`/`do` rules. Stops at first match:
+Branch logic with `when`/`do` rules. First match wins:
 
 ```ts
 on: {
   TOGGLE: [
-    { when: 'isDisabled', do: [] },   // Skip if disabled
-    { when: 'isOpen', do: 'close' },  // Close if open
-    { do: 'open' },                    // Default: open
+    { when: 'isDisabled', do: [] },                      // Skip if disabled
+    { when: 'isOpen', do: (_, __, assign) => assign({ isOpen: false }) },
+    { do: (_, __, assign) => assign({ isOpen: true }) }, // Default
   ],
 }
 ```
 
 ### Guards
 
-Use named guards, inline functions, or arrays in `when`:
+Named guards, inline functions, or arrays (AND logic):
 
 ```ts
-on: {
-  TOGGLE: [
-    { when: 'isOpen', do: 'close' },             // Named guard
-    { when: (ctx) => ctx.disabled, do: [] },     // Inline guard function
-  ],
+guards: {
+  isOpen: (ctx) => ctx.isOpen,
+  canDelete: (ctx) => ctx.isAdmin && !ctx.isLocked,
+},
 
-  // Multiple guards - ALL must pass (AND logic)
+on: {
+  CLOSE: [{ when: 'isOpen', do: 'close' }],  // Named guard
+
   DELETE: [
     {
-      when: ['isAdmin', 'hasPermission', (ctx) => !ctx.isLocked],
+      when: ['isAdmin', 'canDelete', (ctx) => ctx.items.length > 0],  // All must pass
       do: 'deleteItem',
     },
-    { do: 'showError' },
   ],
 }
 ```
@@ -294,62 +324,70 @@ Use inline functions directly in `do`:
 
 ```ts
 on: {
+  INCREMENT: (ctx, _, assign) => assign({ count: ctx.count + 1 }),  // Direct function
+
   SELECT: [
     {
       when: 'isEnabled',
-      do: (ctx, payload) => ctx.selectItem(payload.id),  // Single inline action
-    },
-  ],
-
-  SUBMIT: [
-    {
-      when: 'isValid',
       do: [
-        'logSubmit',                              // Named action
-        (ctx, payload) => ctx.submit(payload),    // Inline function
-        'showSuccess',                            // Named action
+        'logSelection',                          // Named action
+        (ctx, payload) => ctx.onSelect(payload), // Inline function
+        (_, __, assign) => assign({ isOpen: false }),
       ],
     },
   ],
 }
 ```
 
-### Multiple Actions
+### Action Arrays
 
-Execute multiple actions per event:
+Use function arrays directly as handlers (without `when`/`do` rules):
 
 ```ts
 on: {
-  SELECT: ['highlight', 'select', 'close'],  // Array of named actions
+  // Function array — runs all actions in sequence
+  SELECT: [
+    (ctx, { value }) => ctx.onSelect(value),
+    (_, __, assign) => assign({ isOpen: false }),
+  ],
 
-  CONFIRM: [
-    { when: 'isValid', do: ['save', 'close', 'notify'] },
-    { do: 'showError' },
+  // Equivalent to:
+  // SELECT: { do: [(ctx, { value }) => ..., (_, __, assign) => ...] }
+}
+```
+
+**Fresh context**: Each action sees updated context after previous `assign()` calls:
+
+```ts
+on: {
+  INCREMENT_TWICE: [
+    (ctx, _, assign) => {
+      console.log(ctx.count)  // 0
+      assign({ count: ctx.count + 1 })
+    },
+    (ctx, _, assign) => {
+      console.log(ctx.count)  // 1 (fresh context!)
+      assign({ count: ctx.count + 1 })
+    },
   ],
 }
+// Final count: 2
 ```
 
 ### Computed Values
 
-Derive values from input:
+Derive values from context (input + internal):
 
 ```ts
 computed: {
-  isEmpty: (input) => input.items.length === 0,
-  canSubmit: (input) => input.value.length > 0 && !input.isLoading,
+  isEmpty: (ctx) => ctx.items.length === 0,
+  canSubmit: (ctx) => ctx.value.length > 0 && !ctx.isLoading,
+  total: (ctx) => ctx.count * ctx.multiplier,
 },
 
-// Use in handlers
-on: {
-  SUBMIT: [
-    { when: (ctx) => !ctx.canSubmit, do: [] },
-    { do: 'submit' },
-  ],
-}
-
-// Access from hook
-const { computed } = useMachine(machine, { input })
-if (computed.isEmpty) { /* ... */ }
+// Access from snapshot
+const [snapshot, send] = useMachine(machine, { input })
+if (snapshot.isEmpty) { /* ... */ }
 ```
 
 ### Effects
@@ -369,35 +407,36 @@ effects: [
       // When watch becomes falsy
     },
     change: (ctx, prev, curr, { send }) => {
-      // On any change
+      // On any value change
       console.log(`${prev} → ${curr}`)
     },
   },
 ]
 ```
 
-### State-based Handlers
+### State-based Handlers (FSM)
 
 Different handlers per state:
 
 ```ts
 const machine = createMachine<{
-  input: { state: 'idle' | 'loading' | 'error'; setState: (s) => void }
-  events: { FETCH: undefined; RETRY: undefined }
+  internal: { state: 'idle' | 'loading' | 'error' }
+  events: { FETCH: undefined; RETRY: undefined; SUCCESS: undefined }
   state: 'idle' | 'loading' | 'error'
 }>({
+  internal: { state: 'idle' },
   states: {
     idle: {
-      on: { FETCH: 'startFetch' },
+      on: { FETCH: (_, __, assign) => assign({ state: 'loading' }) },
     },
     loading: {
+      on: { SUCCESS: (_, __, assign) => assign({ state: 'idle' }) },
       // FETCH ignored while loading
     },
     error: {
-      on: { RETRY: 'startFetch' },
+      on: { RETRY: (_, __, assign) => assign({ state: 'loading' }) },
     },
   },
-  actions: { startFetch: (ctx) => ctx.setState('loading') },
 })
 ```
 
@@ -407,8 +446,14 @@ Auto-evaluated on every context change:
 
 ```ts
 always: [
-  { when: (ctx) => ctx.value < 0, do: 'clampToMin' },
-  { when: (ctx) => ctx.value > 100, do: 'clampToMax' },
+  {
+    when: (ctx) => ctx.count < 0,
+    do: (ctx, _, assign) => assign({ count: 0 }),  // Clamp to min
+  },
+  {
+    when: (ctx) => ctx.count > 100,
+    do: (ctx, _, assign) => assign({ count: 100 }),  // Clamp to max
+  },
 ]
 ```
 
@@ -419,18 +464,36 @@ always: [
 Use without React:
 
 ```ts
-const machine = createMachine({ /* config */ })
+const machine = createMachine<{
+  input: { multiplier: number }
+  internal: { count: number }
+  computed: { doubled: number }
+  events: { INCREMENT: undefined }
+}>({
+  internal: { count: 0 },
+  computed: { doubled: (ctx) => ctx.count * ctx.multiplier },
+  on: {
+    INCREMENT: (ctx, _, assign) => assign({ count: ctx.count + 1 }),
+  },
+})
 
 // Send events
-machine.send('OPEN', { isOpen: false, onOpenChange: (v) => { /* ... */ } })
+machine.send('INCREMENT', { multiplier: 2 })
+
+// Get snapshot
+const snapshot = machine.getSnapshot({ multiplier: 2 })
+console.log(snapshot.count)   // 1
+console.log(snapshot.doubled) // 2
 
 // Evaluate effects
-machine.evaluate(input)
+machine.evaluate({ multiplier: 2 })
 
-// Get computed values
-const computed = machine.getComputed(input)
+// Internal state management
+machine.getInternal()         // { count: 1 }
+machine.setInternal({ count: 0 })  // Reset
+machine.getInitialInternal()  // { count: 0 }
 
-// Cleanup
+// Cleanup effects
 machine.cleanup()
 ```
 
@@ -443,20 +506,41 @@ machine.cleanup()
 Specify only what you need:
 
 ```ts
-// Minimal
+// Minimal — just input and events
 createMachine<{
-  input: MyInput
-  events: MyEvents
+  input: { value: string }
+  events: { CHANGE: { value: string } }
 }>({ ... })
 
-// Full
+// With internal state
+createMachine<{
+  input: { items: Item[] }
+  internal: { isOpen: boolean; selectedIndex: number }
+  events: { TOGGLE: undefined; SELECT: { index: number } }
+  computed: { selectedItem: Item | null }
+}>({ ... })
+
+// Full configuration
 createMachine<{
   input: MyInput
+  internal: MyInternal
   events: MyEvents
   computed: MyComputed
   actions: 'action1' | 'action2'
   guards: 'guard1' | 'guard2'
   state: 'idle' | 'active'
+}>({ ... })
+```
+
+### Key Safety
+
+Overlapping keys between `input`, `internal`, and `computed` cause compile-time errors:
+
+```ts
+// Error: Context becomes 'never' type
+createMachine<{
+  input: { count: number }
+  internal: { count: string }  // Same key 'count'!
 }>({ ... })
 ```
 
@@ -466,13 +550,16 @@ createMachine<{
 import { createMachine, effect } from 'controlled-machine'
 import { useMachine } from 'controlled-machine/react'
 import type {
+  MachineTypes,
   Machine,
+  MachineInstance,
+  Context,
+  Snapshot,
   Send,
-  Rule,
-  Handler,
-  ActionItem,   // Named action or inline function
-  GuardItem,    // Named guard or inline function
-  UseMachineOptions,
+  Input,
+  Internal,
+  Computed,
+  AssignFn,
 } from 'controlled-machine'
 ```
 

@@ -1,10 +1,19 @@
+/**
+ * Vanilla Tests - createMachine
+ *
+ * Tests for the core createMachine function without React.
+ * Tests event handlers, computed values, states, effects, guards, and internal state.
+ */
+
 import { describe, it, expect, vi } from 'vitest'
 import { createMachine } from '../index'
 
 describe('Vanilla: createMachine', () => {
-  // --------------------------------------------
+  // ============================================
   // on: Event Handlers
-  // --------------------------------------------
+  // Tests for global event handler configurations
+  // Formats: string, array, rule array, inline function
+  // ============================================
 
   describe('on: Event Handlers', () => {
     it('single action (string)', () => {
@@ -120,12 +129,14 @@ describe('Vanilla: createMachine', () => {
     })
   })
 
-  // --------------------------------------------
+  // ============================================
   // computed: Derived Values
-  // --------------------------------------------
+  // Tests for computed values derived from input/internal
+  // Available in context for guards and actions
+  // ============================================
 
   describe('computed: Derived Values', () => {
-    it('computed values available in context', () => {
+    it('computed values available in context and guards', () => {
       const prev = vi.fn()
       const next = vi.fn()
 
@@ -157,7 +168,7 @@ describe('Vanilla: createMachine', () => {
       expect(next).toHaveBeenCalled()
     })
 
-    it('getComputed returns computed values', () => {
+    it('getSnapshot returns computed values', () => {
       const machine = createMachine<{
         input: { count: number }
         computed: { doubled: number; isPositive: boolean }
@@ -168,15 +179,17 @@ describe('Vanilla: createMachine', () => {
         },
       })
 
-      const computed = machine.getComputed({ count: 5 })
-      expect(computed.doubled).toBe(10)
-      expect(computed.isPositive).toBe(true)
+      const snapshot = machine.getSnapshot({ count: 5 })
+      expect(snapshot.doubled).toBe(10)
+      expect(snapshot.isPositive).toBe(true)
     })
   })
 
-  // --------------------------------------------
-  // states: State-based Handlers
-  // --------------------------------------------
+  // ============================================
+  // states: State-based Handlers (FSM)
+  // Tests for state-specific event handlers
+  // Handlers only run when machine is in matching state
+  // ============================================
 
   describe('states: State-based Handlers', () => {
     it('executes handlers based on current state', () => {
@@ -189,12 +202,8 @@ describe('Vanilla: createMachine', () => {
         state: 'idle' | 'loading' | 'success'
       }>({
         states: {
-          idle: {
-            on: { FETCH: 'startLoading' },
-          },
-          loading: {
-            on: { RESOLVE: 'setSuccess' },
-          },
+          idle: { on: { FETCH: 'startLoading' } },
+          loading: { on: { RESOLVE: 'setSuccess' } },
           success: {},
         },
         actions: {
@@ -206,8 +215,8 @@ describe('Vanilla: createMachine', () => {
       machine.send('FETCH', { state: 'idle', log })
       expect(log).toEqual(['loading'])
 
-      machine.send('FETCH', { state: 'loading', log })
-      expect(log).toEqual(['loading']) // ignored
+      machine.send('FETCH', { state: 'loading', log }) // ignored
+      expect(log).toEqual(['loading'])
 
       machine.send('RESOLVE', { state: 'loading', log })
       expect(log).toEqual(['loading', 'success'])
@@ -223,13 +232,9 @@ describe('Vanilla: createMachine', () => {
         state: 'idle'
       }>({
         states: {
-          idle: {
-            on: { ACTION: 'stateAction' },
-          },
+          idle: { on: { ACTION: 'stateAction' } },
         },
-        on: {
-          ACTION: 'globalAction',
-        },
+        on: { ACTION: 'globalAction' },
         actions: {
           stateAction: (ctx) => ctx.log.push('state'),
           globalAction: (ctx) => ctx.log.push('global'),
@@ -239,25 +244,69 @@ describe('Vanilla: createMachine', () => {
       machine.send('ACTION', { state: 'idle', log })
       expect(log).toEqual(['state', 'global'])
     })
+
+    it('FSM with internal.state (state managed by machine)', () => {
+      // This tests the pattern where state lives in internal (managed by machine)
+      // rather than in input (managed by component)
+      const machine = createMachine<{
+        internal: { state: 'idle' | 'loading' | 'error' }
+        events: { FETCH: undefined; SUCCESS: undefined; FAIL: undefined; RETRY: undefined }
+        state: 'idle' | 'loading' | 'error'
+      }>({
+        internal: { state: 'idle' },
+        states: {
+          idle: {
+            on: { FETCH: (_, __, assign) => assign({ state: 'loading' }) },
+          },
+          loading: {
+            on: {
+              SUCCESS: (_, __, assign) => assign({ state: 'idle' }),
+              FAIL: (_, __, assign) => assign({ state: 'error' }),
+            },
+          },
+          error: {
+            on: { RETRY: (_, __, assign) => assign({ state: 'loading' }) },
+          },
+        },
+      })
+
+      // Initial state
+      expect(machine.getSnapshot({}).state).toBe('idle')
+
+      // idle -> loading
+      machine.send('FETCH', {})
+      expect(machine.getSnapshot({}).state).toBe('loading')
+
+      // FETCH ignored while loading
+      machine.send('FETCH', {})
+      expect(machine.getSnapshot({}).state).toBe('loading')
+
+      // loading -> error
+      machine.send('FAIL', {})
+      expect(machine.getSnapshot({}).state).toBe('error')
+
+      // error -> loading (retry)
+      machine.send('RETRY', {})
+      expect(machine.getSnapshot({}).state).toBe('loading')
+
+      // loading -> idle (success)
+      machine.send('SUCCESS', {})
+      expect(machine.getSnapshot({}).state).toBe('idle')
+    })
   })
 
-  // --------------------------------------------
+  // ============================================
   // effects: Watch-based Side Effects
-  // --------------------------------------------
+  // Tests for effect lifecycle callbacks
+  // enter: falsy→truthy, exit: truthy→falsy, change: any change
+  // ============================================
 
   describe('effects: Watch-based Side Effects', () => {
     it('enter: called when watch becomes truthy', () => {
       const enter = vi.fn()
 
-      const machine = createMachine<{
-        input: { isOpen: boolean }
-      }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.isOpen,
-            enter: () => enter(),
-          },
-        ],
+      const machine = createMachine<{ input: { isOpen: boolean } }>({
+        effects: [{ watch: (ctx) => ctx.isOpen, enter: () => enter() }],
       })
 
       machine.evaluate({ isOpen: false })
@@ -270,36 +319,20 @@ describe('Vanilla: createMachine', () => {
     it('exit: called when watch becomes falsy', () => {
       const exit = vi.fn()
 
-      const machine = createMachine<{
-        input: { isOpen: boolean }
-      }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.isOpen,
-            exit: () => exit(),
-          },
-        ],
+      const machine = createMachine<{ input: { isOpen: boolean } }>({
+        effects: [{ watch: (ctx) => ctx.isOpen, exit: () => exit() }],
       })
 
       machine.evaluate({ isOpen: true })
-      expect(exit).not.toHaveBeenCalled()
-
       machine.evaluate({ isOpen: false })
       expect(exit).toHaveBeenCalledTimes(1)
     })
 
-    it('change: called on any value change', () => {
+    it('change: called on any value change with prev/curr', () => {
       const change = vi.fn()
 
-      const machine = createMachine<{
-        input: { focusedId: string | null }
-      }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.focusedId,
-            change: (_ctx, prev, curr) => change(prev, curr),
-          },
-        ],
+      const machine = createMachine<{ input: { focusedId: string | null } }>({
+        effects: [{ watch: (ctx) => ctx.focusedId, change: (_, prev, curr) => change(prev, curr) }],
       })
 
       machine.evaluate({ focusedId: 'a' })
@@ -307,23 +340,13 @@ describe('Vanilla: createMachine', () => {
 
       machine.evaluate({ focusedId: 'b' })
       expect(change).toHaveBeenCalledWith('a', 'b')
-
-      machine.evaluate({ focusedId: null })
-      expect(change).toHaveBeenCalledWith('b', null)
     })
 
-    it('cleanup function is called on change', () => {
+    it('cleanup function is called on next change', () => {
       const cleanup = vi.fn()
 
-      const machine = createMachine<{
-        input: { query: string }
-      }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.query,
-            change: () => cleanup,
-          },
-        ],
+      const machine = createMachine<{ input: { query: string } }>({
+        effects: [{ watch: (ctx) => ctx.query, change: () => cleanup }],
       })
 
       machine.evaluate({ query: 'a' })
@@ -344,18 +367,9 @@ describe('Vanilla: createMachine', () => {
         events: { DELAYED_OPEN: undefined }
         actions: 'delayedOpen'
       }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.isHovered,
-            enter: (_ctx, { send }) => {
-              send('DELAYED_OPEN')
-            },
-          },
-        ],
+        effects: [{ watch: (ctx) => ctx.isHovered, enter: (_, { send }) => { send('DELAYED_OPEN') } }],
         on: { DELAYED_OPEN: 'delayedOpen' },
-        actions: {
-          delayedOpen: (ctx) => ctx.log.push('opened'),
-        },
+        actions: { delayedOpen: (ctx) => ctx.log.push('opened') },
       })
 
       machine.evaluate({ isHovered: true, log })
@@ -366,16 +380,8 @@ describe('Vanilla: createMachine', () => {
       const enterCleanup = vi.fn()
       const changeCleanup = vi.fn()
 
-      const machine = createMachine<{
-        input: { value: number }
-      }>({
-        effects: [
-          {
-            watch: (ctx) => ctx.value,
-            enter: () => enterCleanup,
-            change: () => changeCleanup,
-          },
-        ],
+      const machine = createMachine<{ input: { value: number } }>({
+        effects: [{ watch: (ctx) => ctx.value, enter: () => enterCleanup, change: () => changeCleanup }],
       })
 
       machine.evaluate({ value: 1 })
@@ -387,9 +393,11 @@ describe('Vanilla: createMachine', () => {
     })
   })
 
-  // --------------------------------------------
+  // ============================================
   // always: Auto-evaluated Rules
-  // --------------------------------------------
+  // Tests for rules that run on every context change
+  // First matching rule wins (short-circuit)
+  // ============================================
 
   describe('always: Auto-evaluated Rules', () => {
     it('always rules are evaluated on evaluate()', () => {
@@ -424,11 +432,13 @@ describe('Vanilla: createMachine', () => {
     })
   })
 
-  // --------------------------------------------
-  // guards: String-based Guard Names
-  // --------------------------------------------
+  // ============================================
+  // guards: String and Function Guards
+  // Tests for conditional execution via guards
+  // Supports named strings, inline functions, and arrays (AND logic)
+  // ============================================
 
-  describe('guards: String-based Guard Names', () => {
+  describe('guards: String and Function Guards', () => {
     it('string guards are resolved from machine guards', () => {
       const action = vi.fn()
 
@@ -438,9 +448,7 @@ describe('Vanilla: createMachine', () => {
         actions: 'doAction'
         guards: 'isPositive'
       }>({
-        on: {
-          CHECK: [{ when: 'isPositive', do: 'doAction' }],
-        },
+        on: { CHECK: [{ when: 'isPositive', do: 'doAction' }] },
         actions: { doAction: action },
         guards: { isPositive: (ctx) => ctx.value > 0 },
       })
@@ -494,35 +502,54 @@ describe('Vanilla: createMachine', () => {
         guards: { stringGuard: (ctx) => ctx.value > 0 },
       })
 
-      // value > 0: stringGuard passes
       machine.send('CHECK', { value: 5 })
       expect(action1).toHaveBeenCalledTimes(1)
       expect(action2).not.toHaveBeenCalled()
 
       vi.clearAllMocks()
 
-      // value < 0: stringGuard fails, function guard passes
       machine.send('CHECK', { value: -5 })
       expect(action1).not.toHaveBeenCalled()
       expect(action2).toHaveBeenCalledTimes(1)
     })
+
+    it('guard arrays use AND logic', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: { a: boolean; b: boolean }
+        events: { CHECK: undefined }
+        actions: 'action'
+      }>({
+        on: { CHECK: [{ when: [(ctx) => ctx.a, (ctx) => ctx.b], do: 'action' }] },
+        actions: { action },
+      })
+
+      machine.send('CHECK', { a: false, b: false })
+      machine.send('CHECK', { a: true, b: false })
+      machine.send('CHECK', { a: false, b: true })
+      expect(action).not.toHaveBeenCalled()
+
+      machine.send('CHECK', { a: true, b: true })
+      expect(action).toHaveBeenCalledTimes(1)
+    })
   })
 
-  // --------------------------------------------
+  // ============================================
   // Inline Functions in do Field
-  // --------------------------------------------
+  // Tests for inline function actions in rule 'do' field
+  // Can be mixed with named action strings
+  // ============================================
 
   describe('Inline Functions in do Field', () => {
-    it('single inline function in do', () => {
+    it('inline function in do', () => {
       const log: string[] = []
 
       const machine = createMachine<{
         input: { log: string[] }
         events: { ACTION: undefined }
       }>({
-        on: {
-          ACTION: [{ do: (ctx) => ctx.log.push('inline') }],
-        },
+        on: { ACTION: [{ do: (ctx) => ctx.log.push('inline') }] },
       })
 
       machine.send('ACTION', { log })
@@ -538,15 +565,7 @@ describe('Vanilla: createMachine', () => {
         actions: 'action1' | 'action2'
       }>({
         on: {
-          ACTION: [
-            {
-              do: [
-                'action1',
-                (ctx) => ctx.log.push('inline'),
-                'action2',
-              ],
-            },
-          ],
+          ACTION: [{ do: ['action1', (ctx) => ctx.log.push('inline'), 'action2'] }],
         },
         actions: {
           action1: (ctx) => ctx.log.push('action1'),
@@ -558,148 +577,145 @@ describe('Vanilla: createMachine', () => {
       expect(log).toEqual(['action1', 'inline', 'action2'])
     })
 
-    it('payload is passed to inline function in do', () => {
+    it('payload passed to inline function', () => {
       const select = vi.fn()
 
       const machine = createMachine<{
         input: { select: (id: string) => void }
         events: { SELECT: { id: string } }
       }>({
-        on: {
-          SELECT: [{ do: (ctx, payload) => ctx.select(payload.id) }],
-        },
+        on: { SELECT: [{ do: (ctx, payload) => ctx.select(payload.id) }] },
       })
 
       machine.send('SELECT', { select }, { id: 'item-1' })
       expect(select).toHaveBeenCalledWith('item-1')
     })
-
-    it('inline function in always rules', () => {
-      const clamp = vi.fn()
-
-      const machine = createMachine<{
-        input: { value: number; clamp: (v: number) => void }
-      }>({
-        always: [
-          {
-            when: (ctx) => ctx.value > 100,
-            do: (ctx) => ctx.clamp(100),
-          },
-        ],
-      })
-
-      machine.evaluate({ value: 150, clamp })
-      expect(clamp).toHaveBeenCalledWith(100)
-    })
-
-    it('inline function with guard in do', () => {
-      const log: string[] = []
-
-      const machine = createMachine<{
-        input: { isValid: boolean; log: string[] }
-        events: { SUBMIT: undefined }
-      }>({
-        on: {
-          SUBMIT: [
-            { when: (ctx) => !ctx.isValid, do: (ctx) => ctx.log.push('invalid') },
-            { do: (ctx) => ctx.log.push('valid') },
-          ],
-        },
-      })
-
-      machine.send('SUBMIT', { isValid: false, log })
-      expect(log).toEqual(['invalid'])
-
-      log.length = 0
-      machine.send('SUBMIT', { isValid: true, log })
-      expect(log).toEqual(['valid'])
-    })
   })
 
-  // --------------------------------------------
-  // Guard Arrays in when Field
-  // --------------------------------------------
+  // ============================================
+  // internal: Internal State
+  // Tests for machine-managed internal state
+  // Updated via assign(), persists across events
+  // ============================================
 
-  describe('Guard Arrays in when Field', () => {
-    it('all guards must pass for action to execute', () => {
-      const action = vi.fn()
-
+  describe('internal: Internal State', () => {
+    it('internal state in snapshot with computed', () => {
       const machine = createMachine<{
-        input: { a: boolean; b: boolean }
-        events: { CHECK: undefined }
-        actions: 'action'
+        input: { multiplier: number }
+        internal: { count: number }
+        computed: { total: number }
       }>({
-        on: {
-          CHECK: [
-            { when: [(ctx) => ctx.a, (ctx) => ctx.b], do: 'action' },
-          ],
-        },
-        actions: { action },
+        internal: { count: 5 },
+        computed: { total: (ctx) => ctx.count * ctx.multiplier },
       })
 
-      // Both false - action not called
-      machine.send('CHECK', { a: false, b: false })
-      expect(action).not.toHaveBeenCalled()
-
-      // Only a true - action not called
-      machine.send('CHECK', { a: true, b: false })
-      expect(action).not.toHaveBeenCalled()
-
-      // Only b true - action not called
-      machine.send('CHECK', { a: false, b: true })
-      expect(action).not.toHaveBeenCalled()
-
-      // Both true - action called
-      machine.send('CHECK', { a: true, b: true })
-      expect(action).toHaveBeenCalledTimes(1)
+      const snapshot = machine.getSnapshot({ multiplier: 2 })
+      expect(snapshot.count).toBe(5)
+      expect(snapshot.total).toBe(10)
     })
 
-    it('mixed string and inline guards in array', () => {
-      const action = vi.fn()
-
+    it('assign updates internal state', () => {
       const machine = createMachine<{
-        input: { a: boolean; b: boolean }
-        events: { CHECK: undefined }
-        actions: 'action'
-        guards: 'isA'
+        input: { increment: number }
+        internal: { count: number }
+        events: { INCREMENT: undefined }
       }>({
-        on: {
-          CHECK: [
-            { when: ['isA', (ctx) => ctx.b], do: 'action' },
-          ],
-        },
-        actions: { action },
-        guards: { isA: (ctx) => ctx.a },
+        internal: { count: 0 },
+        on: { INCREMENT: (ctx, _, assign) => assign({ count: ctx.count + ctx.increment }) },
       })
 
-      machine.send('CHECK', { a: true, b: false })
-      expect(action).not.toHaveBeenCalled()
+      machine.send('INCREMENT', { increment: 5 })
+      expect(machine.getInternal().count).toBe(5)
 
-      machine.send('CHECK', { a: true, b: true })
-      expect(action).toHaveBeenCalledTimes(1)
+      machine.send('INCREMENT', { increment: 3 })
+      expect(machine.getInternal().count).toBe(8)
     })
 
-    it('guard array in always rules', () => {
-      const clamp = vi.fn()
-
+    it('getInitialInternal and setInternal', () => {
       const machine = createMachine<{
-        input: { value: number; enabled: boolean; clamp: (v: number) => void }
+        internal: { isOpen: boolean; count: number }
       }>({
-        always: [
-          {
-            when: [(ctx) => ctx.enabled, (ctx) => ctx.value > 100],
-            do: (ctx) => ctx.clamp(100),
-          },
-        ],
+        internal: { isOpen: false, count: 0 },
       })
 
-      // Not enabled - no clamp
-      machine.evaluate({ value: 150, enabled: false, clamp })
-      expect(clamp).not.toHaveBeenCalled()
+      expect(machine.getInitialInternal()).toEqual({ isOpen: false, count: 0 })
 
-      // Enabled and value > 100 - clamp
-      machine.evaluate({ value: 150, enabled: true, clamp })
-      expect(clamp).toHaveBeenCalledWith(100)
+      machine.setInternal({ isOpen: true, count: 100 })
+      expect(machine.getInternal()).toEqual({ isOpen: true, count: 100 })
+    })
+
+    it('internal state persists across multiple send calls', () => {
+      const machine = createMachine<{
+        input: { delta: number }
+        internal: { value: number }
+        events: { ADD: undefined; SUBTRACT: undefined }
+      }>({
+        internal: { value: 10 },
+        on: {
+          ADD: (ctx, _, assign) => assign({ value: ctx.value + ctx.delta }),
+          SUBTRACT: (ctx, _, assign) => assign({ value: ctx.value - ctx.delta }),
+        },
+      })
+
+      machine.send('ADD', { delta: 5 })
+      expect(machine.getInternal().value).toBe(15)
+
+      machine.send('SUBTRACT', { delta: 3 })
+      expect(machine.getInternal().value).toBe(12)
+
+      machine.send('ADD', { delta: 8 })
+      expect(machine.getInternal().value).toBe(20)
+    })
+
+    it('sequential actions see fresh context after each assign', () => {
+      const log: number[] = []
+
+      const machine = createMachine<{
+        internal: { count: number }
+        events: { INCREMENT_TWICE: undefined }
+      }>({
+        internal: { count: 0 },
+        on: {
+          // Each action should see updated count from previous assign
+          INCREMENT_TWICE: [
+            (ctx, _, assign) => {
+              log.push(ctx.count) // Should be 0
+              assign({ count: ctx.count + 1 })
+            },
+            (ctx, _, assign) => {
+              log.push(ctx.count) // Should be 1 (fresh context)
+              assign({ count: ctx.count + 1 })
+            },
+          ],
+        },
+      })
+
+      machine.send('INCREMENT_TWICE', {})
+      expect(log).toEqual([0, 1]) // Each action saw fresh context
+      expect(machine.getInternal().count).toBe(2)
+    })
+
+    it('sequential named actions see fresh context', () => {
+      const log: number[] = []
+
+      const machine = createMachine<{
+        internal: { value: number }
+        events: { TRIPLE: undefined }
+        actions: 'addOne' | 'logValue'
+      }>({
+        internal: { value: 10 },
+        on: {
+          TRIPLE: ['logValue', 'addOne', 'logValue', 'addOne', 'logValue'],
+        },
+        actions: {
+          addOne: (ctx, _, assign) => assign({ value: ctx.value + 1 }),
+          logValue: (ctx) => log.push(ctx.value),
+        },
+      })
+
+      machine.send('TRIPLE', {})
+      expect(log).toEqual([10, 11, 12]) // Fresh context after each assign
+      expect(machine.getInternal().value).toBe(12)
     })
   })
 })

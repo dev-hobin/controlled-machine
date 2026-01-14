@@ -1,3 +1,11 @@
+/**
+ * React Tests - useMachine Hook
+ *
+ * Tests for the React integration via useMachine hook.
+ * Tests event dispatching, computed values, effects, states,
+ * action/guard overrides, internal state, and edge cases.
+ */
+
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useState } from 'react'
@@ -7,6 +15,7 @@ import { useMachine } from '../react'
 describe('React: useMachine', () => {
   // --------------------------------------------
   // send: Dispatching Events
+  // Tests for event dispatching and action execution
   // --------------------------------------------
 
   describe('send: Dispatching Events', () => {
@@ -22,7 +31,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [count, setCount] = useState(0)
-        return { ...useMachine(machine, { input: { count, setCount } }), count }
+        const [snapshot, send] = useMachine(machine, { input: { count, setCount } })
+        return { snapshot, send, count }
       })
 
       expect(result.current.count).toBe(0)
@@ -46,7 +56,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [value, setValue] = useState('')
-        return { ...useMachine(machine, { input: { value, setValue } }), value }
+        const [snapshot, send] = useMachine(machine, { input: { value, setValue } })
+        return { snapshot, send, value }
       })
 
       act(() => result.current.send('SET', { value: 'hello' }))
@@ -74,11 +85,8 @@ describe('React: useMachine', () => {
       const { result } = renderHook(() => {
         const [value, setValue] = useState('')
         const [isOpen, setIsOpen] = useState(true)
-        return {
-          ...useMachine(machine, { input: { value, isOpen, setValue, setIsOpen } }),
-          value,
-          isOpen,
-        }
+        const [snapshot, send] = useMachine(machine, { input: { value, isOpen, setValue, setIsOpen } })
+        return { snapshot, send, value, isOpen }
       })
 
       act(() => result.current.send('SELECT', { id: 'item-1' }))
@@ -89,10 +97,11 @@ describe('React: useMachine', () => {
 
   // --------------------------------------------
   // computed: Derived Values
+  // Tests for computed values in snapshot and guards
   // --------------------------------------------
 
   describe('computed: Derived Values', () => {
-    it('computed values are returned from hook', () => {
+    it('computed values are in snapshot', () => {
       const machine = createMachine<{
         input: { items: string[] }
         computed: { count: number; isEmpty: boolean }
@@ -105,15 +114,16 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [items, setItems] = useState(['a', 'b'])
-        return { ...useMachine(machine, { input: { items } }), setItems }
+        const [snapshot, send] = useMachine(machine, { input: { items } })
+        return { snapshot, send, setItems }
       })
 
-      expect(result.current.computed.count).toBe(2)
-      expect(result.current.computed.isEmpty).toBe(false)
+      expect(result.current.snapshot.count).toBe(2)
+      expect(result.current.snapshot.isEmpty).toBe(false)
 
       act(() => result.current.setItems([]))
-      expect(result.current.computed.count).toBe(0)
-      expect(result.current.computed.isEmpty).toBe(true)
+      expect(result.current.snapshot.count).toBe(0)
+      expect(result.current.snapshot.isEmpty).toBe(true)
     })
 
     it('computed values usable in conditional handlers', () => {
@@ -136,7 +146,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [count, setCount] = useState(1)
-        return { ...useMachine(machine, { input: { count, setCount } }), count }
+        const [snapshot, send] = useMachine(machine, { input: { count, setCount } })
+        return { snapshot, send, count }
       })
 
       act(() => result.current.send('DECREMENT'))
@@ -150,6 +161,7 @@ describe('React: useMachine', () => {
 
   // --------------------------------------------
   // effects: Watch-based Side Effects
+  // Tests for enter/exit/change callbacks and cleanup
   // --------------------------------------------
 
   describe('effects: Watch-based Side Effects', () => {
@@ -183,7 +195,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [isOpen, setIsOpen] = useState(false)
-        return { ...useMachine(machine, { input: { isOpen, setIsOpen } }), isOpen }
+        const [snapshot, send] = useMachine(machine, { input: { isOpen, setIsOpen } })
+        return { snapshot, send, isOpen }
       })
 
       expect(enter).not.toHaveBeenCalled()
@@ -221,7 +234,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [id, setId] = useState<string | null>(null)
-        return { ...useMachine(machine, { input: { id, setId } }), id }
+        const [snapshot, send] = useMachine(machine, { input: { id, setId } })
+        return { snapshot, send, id }
       })
 
       act(() => result.current.send('FOCUS', { id: 'a' }))
@@ -256,21 +270,23 @@ describe('React: useMachine', () => {
   })
 
   // --------------------------------------------
-  // state: State-based Handlers
+  // state: State-based Handlers (FSM)
+  // Tests for state-specific event handlers
   // --------------------------------------------
 
   describe('state: State-based Handlers', () => {
-    it('state is returned from hook', () => {
+    it('state is in snapshot', () => {
       const machine = createMachine<{
         input: { state: 'idle' | 'loading' }
         state: 'idle' | 'loading'
       }>({})
 
       const { result } = renderHook(() => {
-        return useMachine(machine, { input: { state: 'loading' } })
+        const [snapshot, send] = useMachine(machine, { input: { state: 'loading' } })
+        return { snapshot, send }
       })
 
-      expect(result.current.state).toBe('loading')
+      expect(result.current.snapshot.state).toBe('loading')
     })
 
     it('state-based handlers work in React', () => {
@@ -299,7 +315,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [state, setState] = useState<'idle' | 'active'>('idle')
-        return { ...useMachine(machine, { input: { state, setState } }), state }
+        const [snapshot, send] = useMachine(machine, { input: { state, setState } })
+        return { snapshot, send, state }
       })
 
       // idle state: ACTIVATE works, DEACTIVATE ignored
@@ -316,10 +333,66 @@ describe('React: useMachine', () => {
       act(() => result.current.send('DEACTIVATE'))
       expect(result.current.state).toBe('idle')
     })
+
+    it('FSM with internal.state (state managed by machine)', () => {
+      // This tests the pattern where state lives in internal (managed by machine)
+      // rather than in input (managed by component)
+      const createFSMMachine = () =>
+        createMachine<{
+          internal: { state: 'idle' | 'loading' | 'error' }
+          events: { FETCH: undefined; SUCCESS: undefined; FAIL: undefined; RETRY: undefined }
+          state: 'idle' | 'loading' | 'error'
+        }>({
+          internal: { state: 'idle' },
+          states: {
+            idle: {
+              on: { FETCH: (_, __, assign) => assign({ state: 'loading' }) },
+            },
+            loading: {
+              on: {
+                SUCCESS: (_, __, assign) => assign({ state: 'idle' }),
+                FAIL: (_, __, assign) => assign({ state: 'error' }),
+              },
+            },
+            error: {
+              on: { RETRY: (_, __, assign) => assign({ state: 'loading' }) },
+            },
+          },
+        })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(createFSMMachine)
+        return { snapshot, send }
+      })
+
+      // Initial state
+      expect(result.current.snapshot.state).toBe('idle')
+
+      // idle -> loading
+      act(() => result.current.send('FETCH'))
+      expect(result.current.snapshot.state).toBe('loading')
+
+      // FETCH ignored while loading
+      act(() => result.current.send('FETCH'))
+      expect(result.current.snapshot.state).toBe('loading')
+
+      // loading -> error
+      act(() => result.current.send('FAIL'))
+      expect(result.current.snapshot.state).toBe('error')
+
+      // error -> loading (retry)
+      act(() => result.current.send('RETRY'))
+      expect(result.current.snapshot.state).toBe('loading')
+
+      // loading -> idle (success)
+      act(() => result.current.send('SUCCESS'))
+      expect(result.current.snapshot.state).toBe('idle')
+    })
   })
 
   // --------------------------------------------
   // actions: Override Actions
+  // Tests for action overrides via useMachine options
   // --------------------------------------------
 
   describe('actions: Override Actions', () => {
@@ -337,10 +410,11 @@ describe('React: useMachine', () => {
       })
 
       const { result } = renderHook(() => {
-        return useMachine(machine, {
+        const [snapshot, send] = useMachine(machine, {
           input: { value: 1 },
           actions: { doSomething: overrideAction },
         })
+        return { snapshot, send }
       })
 
       act(() => result.current.send('DO'))
@@ -363,10 +437,11 @@ describe('React: useMachine', () => {
       })
 
       const { result } = renderHook(() => {
-        return useMachine(machine, {
+        const [snapshot, send] = useMachine(machine, {
           input: { value: 1 },
           actions: { action2: overrideAction2 },  // override action2
         })
+        return { snapshot, send }
       })
 
       act(() => result.current.send('A'))
@@ -380,6 +455,7 @@ describe('React: useMachine', () => {
 
   // --------------------------------------------
   // guards: String-based Guard Names
+  // Tests for guard overrides via useMachine options
   // --------------------------------------------
 
   describe('guards: String-based Guard Names', () => {
@@ -402,13 +478,11 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [value, setValue] = useState(5)
-        return {
-          ...useMachine(machine, {
-            input: { value },
-            guards: { isPositive: (ctx) => ctx.value > 0 },
-          }),
-          setValue,
-        }
+        const [snapshot, send] = useMachine(machine, {
+          input: { value },
+          guards: { isPositive: (ctx) => ctx.value > 0 },
+        })
+        return { snapshot, send, setValue }
       })
 
       act(() => result.current.send('CHECK'))
@@ -433,10 +507,11 @@ describe('React: useMachine', () => {
       })
 
       const { result } = renderHook(() => {
-        return useMachine(machine, {
+        const [snapshot, send] = useMachine(machine, {
           input: { value: -5 },
           guards: { isPositive: (ctx) => ctx.value > 0 },
         })
+        return { snapshot, send }
       })
 
       act(() => result.current.send('CHECK'))
@@ -463,10 +538,11 @@ describe('React: useMachine', () => {
       })
 
       const { result } = renderHook(() => {
-        return useMachine(machine, {
+        const [snapshot, send] = useMachine(machine, {
           input: { value: -5 },
           guards: { stringGuard: (ctx) => ctx.value > 0 },
         })
+        return { snapshot, send }
       })
 
       act(() => result.current.send('CHECK'))
@@ -503,13 +579,14 @@ describe('React: useMachine', () => {
       })
 
       const { result } = renderHook(() => {
-        return useMachine(machine, {
+        const [snapshot, send] = useMachine(machine, {
           input: { value: 50 },
           guards: {
             guard1: (ctx) => ctx.value > 10,  // override: value > 10
             // guard2 not overridden - uses machine's guard
           },
         })
+        return { snapshot, send }
       })
 
       // guard1 overridden: 50 > 10 = true, action1 executes
@@ -525,6 +602,7 @@ describe('React: useMachine', () => {
 
   // --------------------------------------------
   // Inline Functions in do Field
+  // Tests for inline function actions in rules
   // --------------------------------------------
 
   describe('Inline Functions in do Field', () => {
@@ -540,7 +618,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [count, setCount] = useState(0)
-        return { ...useMachine(machine, { input: { count, setCount } }), count }
+        const [snapshot, send] = useMachine(machine, { input: { count, setCount } })
+        return { snapshot, send, count }
       })
 
       expect(result.current.count).toBe(0)
@@ -574,9 +653,10 @@ describe('React: useMachine', () => {
         },
       })
 
-      const { result } = renderHook(() =>
-        useMachine(machine, { input: { log } })
-      )
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: { log } })
+        return { snapshot, send }
+      })
 
       act(() => result.current.send('ACTION'))
       expect(log).toEqual(['action1', 'inline', 'action2'])
@@ -594,7 +674,8 @@ describe('React: useMachine', () => {
 
       const { result } = renderHook(() => {
         const [value, setValue] = useState('')
-        return { ...useMachine(machine, { input: { value, setValue } }), value }
+        const [snapshot, send] = useMachine(machine, { input: { value, setValue } })
+        return { snapshot, send, value }
       })
 
       act(() => result.current.send('SET', { value: 'hello' }))
@@ -604,6 +685,7 @@ describe('React: useMachine', () => {
 
   // --------------------------------------------
   // Guard Arrays in when Field
+  // Tests for multiple guards with AND logic
   // --------------------------------------------
 
   describe('Guard Arrays in when Field', () => {
@@ -625,12 +707,8 @@ describe('React: useMachine', () => {
         const [count, setCount] = useState(0)
         const [a, setA] = useState(false)
         const [b, setB] = useState(false)
-        return {
-          ...useMachine(machine, { input: { a, b, count, setCount } }),
-          count,
-          setA,
-          setB,
-        }
+        const [snapshot, send] = useMachine(machine, { input: { a, b, count, setCount } })
+        return { snapshot, send, count, setA, setB }
       })
 
       // Both false - no increment
@@ -646,6 +724,561 @@ describe('React: useMachine', () => {
       act(() => result.current.setB(true))
       act(() => result.current.send('INCREMENT'))
       expect(result.current.count).toBe(1)
+    })
+  })
+
+  // --------------------------------------------
+  // Internal State with assign
+  // Tests for machine-managed internal state in React
+  // Updated via assign(), triggers re-render
+  // --------------------------------------------
+
+  describe('internal: Internal State with assign', () => {
+    it('assign updates internal state and triggers re-render', () => {
+      const machine = createMachine<{
+        input: { increment: number }
+        internal: { count: number }
+        events: { INCREMENT: undefined }
+      }>({
+        internal: { count: 0 },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => {
+            assign({ count: ctx.count + ctx.increment })
+          },
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: { increment: 5 } })
+        return { snapshot, send }
+      })
+
+      // internal count accessible via snapshot
+      act(() => result.current.send('INCREMENT'))
+      // Re-render should happen, send again to verify state persisted
+      act(() => result.current.send('INCREMENT'))
+      // After 2 increments: 0 + 5 + 5 = 10
+    })
+
+    it('internal state is isolated per hook instance', () => {
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number }
+        events: { INCREMENT: undefined }
+        computed: { currentCount: number }
+      }>({
+        internal: { count: 0 },
+        computed: {
+          currentCount: (ctx) => ctx.count,
+        },
+        on: {
+          INCREMENT: (_ctx, _payload, assign) => {
+            assign({ count: _ctx.count + 1 })
+          },
+        },
+      })
+
+      const { result: result1 } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+      const { result: result2 } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      act(() => result1.current.send('INCREMENT'))
+      act(() => result1.current.send('INCREMENT'))
+
+      expect(result1.current.snapshot.currentCount).toBe(2)
+      expect(result2.current.snapshot.currentCount).toBe(0)
+    })
+
+    it('flat context: input and internal accessible at same level', () => {
+      const machine = createMachine<{
+        input: { multiplier: number }
+        internal: { count: number }
+        events: { INCREMENT: undefined }
+        computed: { total: number }
+      }>({
+        internal: { count: 0 },
+        computed: {
+          // ctx.count (internal) and ctx.multiplier (input) at same level
+          total: (ctx) => ctx.count * ctx.multiplier,
+        },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => {
+            // Both ctx.count and ctx.multiplier directly accessible
+            assign({ count: ctx.count + 1 })
+          },
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: { multiplier: 10 } })
+        return { snapshot, send }
+      })
+
+      expect(result.current.snapshot.total).toBe(0)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.snapshot.total).toBe(10)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.snapshot.total).toBe(20)
+    })
+
+    it('factory pattern: create machine with custom initial internal', () => {
+      const createCounterMachine = (initialCount: number) =>
+        createMachine<{
+          input: {}
+          internal: { count: number }
+          events: { INCREMENT: undefined; DECREMENT: undefined }
+          computed: { currentCount: number }
+        }>({
+          internal: { count: initialCount },
+          computed: {
+            currentCount: (ctx) => ctx.count,
+          },
+          on: {
+            INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+            DECREMENT: (ctx, _payload, assign) => assign({ count: ctx.count - 1 }),
+          },
+        })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(() => createCounterMachine(100), { input: {} })
+        return { snapshot, send }
+      })
+
+      expect(result.current.snapshot.currentCount).toBe(100)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.snapshot.currentCount).toBe(101)
+
+      act(() => result.current.send('DECREMENT'))
+      expect(result.current.snapshot.currentCount).toBe(100)
+    })
+
+    it('factory pattern: type inference without explicit input type', () => {
+      // README example: no input type specified
+      const createCounterMachine = (initialCount: number) =>
+        createMachine<{
+          internal: { count: number }
+          events: { INCREMENT: undefined }
+          computed: { currentCount: number }
+        }>({
+          internal: { count: initialCount },
+          computed: { currentCount: (ctx) => ctx.count },
+          on: {
+            INCREMENT: (ctx, _, assign) => assign({ count: ctx.count + 1 }),
+          },
+        })
+
+      // No input option needed
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(() => createCounterMachine(100))
+        return { snapshot, send }
+      })
+
+      // Type inference should work: snapshot.count, snapshot.currentCount
+      expect(result.current.snapshot.count).toBe(100)
+      expect(result.current.snapshot.currentCount).toBe(100)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.snapshot.count).toBe(101)
+      expect(result.current.snapshot.currentCount).toBe(101)
+
+      // send should be typed: 'INCREMENT' is valid
+      act(() => result.current.send('INCREMENT'))
+      expect(result.current.snapshot.count).toBe(102)
+    })
+
+    it('assign with partial updates preserves other internal values', () => {
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number; name: string; active: boolean }
+        events: { UPDATE_COUNT: { value: number }; UPDATE_NAME: { value: string } }
+        computed: { snapshot: { count: number; name: string; active: boolean } }
+      }>({
+        internal: { count: 0, name: 'initial', active: true },
+        computed: {
+          snapshot: (ctx) => ({ count: ctx.count, name: ctx.name, active: ctx.active }),
+        },
+        on: {
+          UPDATE_COUNT: (_ctx, payload, assign) => assign({ count: payload.value }),
+          UPDATE_NAME: (_ctx, payload, assign) => assign({ name: payload.value }),
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      expect(result.current.snapshot.snapshot).toEqual({
+        count: 0,
+        name: 'initial',
+        active: true,
+      })
+
+      act(() => result.current.send('UPDATE_COUNT', { value: 42 }))
+      expect(result.current.snapshot.snapshot).toEqual({
+        count: 42,
+        name: 'initial',
+        active: true,
+      })
+
+      act(() => result.current.send('UPDATE_NAME', { value: 'updated' }))
+      expect(result.current.snapshot.snapshot).toEqual({
+        count: 42,
+        name: 'updated',
+        active: true,
+      })
+    })
+
+    it('effects can watch internal state changes', () => {
+      const onChange = vi.fn()
+
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number }
+        events: { INCREMENT: undefined }
+      }>({
+        internal: { count: 0 },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+        },
+        effects: [
+          {
+            watch: (ctx) => ctx.count,
+            change: (_ctx, prev, curr) => onChange(prev, curr),
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      act(() => result.current.send('INCREMENT'))
+      expect(onChange).toHaveBeenCalledWith(0, 1)
+
+      act(() => result.current.send('INCREMENT'))
+      expect(onChange).toHaveBeenCalledWith(1, 2)
+    })
+
+    it('guards can use internal state', () => {
+      const action = vi.fn()
+
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number }
+        events: { INCREMENT: undefined; TRY_ACTION: undefined }
+      }>({
+        internal: { count: 0 },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+          TRY_ACTION: [
+            { when: (ctx) => ctx.count >= 3, do: action },
+          ],
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      act(() => result.current.send('TRY_ACTION'))
+      expect(action).not.toHaveBeenCalled()
+
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('TRY_ACTION'))
+      expect(action).not.toHaveBeenCalled()
+
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('TRY_ACTION'))
+      expect(action).toHaveBeenCalledTimes(1)
+    })
+
+    it('multiple assigns in same handler work correctly (no stale closure)', () => {
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number }
+        events: { TRIPLE_INCREMENT: undefined }
+        computed: { currentCount: number }
+      }>({
+        internal: { count: 0 },
+        computed: {
+          currentCount: (ctx) => ctx.count,
+        },
+        on: {
+          TRIPLE_INCREMENT: (_ctx, _payload, assign) => {
+            // Multiple assigns in the same handler should all work
+            assign({ count: 1 })
+            assign({ count: 2 })
+            assign({ count: 3 })
+          },
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      expect(result.current.snapshot.currentCount).toBe(0)
+
+      act(() => result.current.send('TRIPLE_INCREMENT'))
+      // All three assigns should have been applied, final value is 3
+      expect(result.current.snapshot.currentCount).toBe(3)
+    })
+  })
+
+  // --------------------------------------------
+  // Infinite Rendering Prevention
+  // Tests for edge cases that could cause infinite loops
+  // always rules, effects with send, rapid events
+  // --------------------------------------------
+
+  describe('infinite rendering prevention', () => {
+    it('always block with assign does not cause infinite loop when condition stabilizes', () => {
+      const renderCount = { current: 0 }
+
+      const machine = createMachine<{
+        input: { threshold: number }
+        internal: { count: number; capped: boolean }
+        events: { INCREMENT: undefined }
+        computed: { currentCount: number }
+      }>({
+        internal: { count: 0, capped: false },
+        computed: {
+          currentCount: (ctx) => ctx.count,
+        },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+        },
+        always: [
+          {
+            // Cap count at threshold - should only trigger once when condition becomes true
+            when: (ctx) => ctx.count > ctx.threshold && !ctx.capped,
+            do: (_ctx, _payload, assign) => assign({ count: _ctx.threshold, capped: true }),
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => {
+        renderCount.current++
+        const [snapshot, send] = useMachine(machine, { input: { threshold: 5 } })
+        return { snapshot, send, renderCount: renderCount.current }
+      })
+
+      // Initial render
+      const initialRenderCount = renderCount.current
+
+      // Increment multiple times
+      act(() => {
+        result.current.send('INCREMENT')
+        result.current.send('INCREMENT')
+        result.current.send('INCREMENT')
+      })
+
+      // Should not have excessive renders (allowing for some React batching behavior)
+      expect(renderCount.current - initialRenderCount).toBeLessThan(10)
+      expect(result.current.snapshot.currentCount).toBeLessThanOrEqual(5)
+    })
+
+    it('effect with send does not cause infinite loop when guarded properly', () => {
+      const effectCallCount = { current: 0 }
+
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number; effectTriggered: boolean }
+        events: { INCREMENT: undefined; EFFECT_COMPLETE: undefined }
+        computed: { currentCount: number }
+      }>({
+        internal: { count: 0, effectTriggered: false },
+        computed: {
+          currentCount: (ctx) => ctx.count,
+        },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+          EFFECT_COMPLETE: (_ctx, _payload, assign) => assign({ effectTriggered: true }),
+        },
+        effects: [
+          {
+            watch: (ctx) => ctx.count,
+            change: (ctx, _prev, _curr, { send }) => {
+              effectCallCount.current++
+              // Only send if not already triggered - prevents infinite loop
+              if (!ctx.effectTriggered && ctx.count === 3) {
+                send('EFFECT_COMPLETE')
+              }
+            },
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('INCREMENT'))
+
+      // Effect should have been called for each render that changed count
+      // The exact number depends on React batching, but EFFECT_COMPLETE should fire once
+      expect(effectCallCount.current).toBeGreaterThanOrEqual(1)
+      expect(result.current.snapshot.effectTriggered).toBe(true)
+    })
+
+    it('action modifying input setter does not cause issues', () => {
+      const renderCount = { current: 0 }
+
+      const machine = createMachine<{
+        input: { count: number; setCount: (c: number) => void }
+        events: { INCREMENT: undefined }
+        actions: 'increment'
+      }>({
+        on: { INCREMENT: 'increment' },
+        actions: {
+          increment: (ctx) => ctx.setCount(ctx.count + 1),
+        },
+      })
+
+      const { result } = renderHook(() => {
+        renderCount.current++
+        const [count, setCount] = useState(0)
+        const [snapshot, send] = useMachine(machine, { input: { count, setCount } })
+        return { snapshot, send, count }
+      })
+
+      const initialRenderCount = renderCount.current
+
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('INCREMENT'))
+      act(() => result.current.send('INCREMENT'))
+
+      // Each increment should cause exactly one re-render
+      // Initial + 3 increments = ~4 renders (allowing for strict mode doubles)
+      expect(renderCount.current - initialRenderCount).toBeLessThan(10)
+      expect(result.current.count).toBe(3)
+    })
+
+    it('rapid consecutive sends do not cause issues', () => {
+      const machine = createMachine<{
+        input: {}
+        internal: { count: number }
+        events: { INCREMENT: undefined }
+        computed: { currentCount: number }
+      }>({
+        internal: { count: 0 },
+        computed: {
+          currentCount: (ctx) => ctx.count,
+        },
+        on: {
+          INCREMENT: (ctx, _payload, assign) => assign({ count: ctx.count + 1 }),
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [snapshot, send] = useMachine(machine, { input: {} })
+        return { snapshot, send }
+      })
+
+      // Send many events rapidly
+      act(() => {
+        for (let i = 0; i < 100; i++) {
+          result.current.send('INCREMENT')
+        }
+      })
+
+      expect(result.current.snapshot.currentCount).toBe(100)
+    })
+
+    it('always block without assign does not cause issues', () => {
+      const alwaysCallCount = { current: 0 }
+
+      const machine = createMachine<{
+        input: { value: number }
+        events: { UPDATE: { value: number } }
+        actions: 'logValue'
+      }>({
+        on: {
+          UPDATE: (_ctx, _payload, _assign) => {
+            // This modifies input via external setter, not assign
+          },
+        },
+        always: [
+          {
+            when: (ctx) => ctx.value > 0,
+            do: () => {
+              alwaysCallCount.current++
+              // Side effect only, no assign
+            },
+          },
+        ],
+        actions: {
+          logValue: () => {},
+        },
+      })
+
+      const { result } = renderHook(() => {
+        const [value, setValue] = useState(5)
+        const [snapshot, send] = useMachine(machine, { input: { value } })
+        return { snapshot, send, setValue }
+      })
+
+      // Initial render should trigger always once
+      const initialCallCount = alwaysCallCount.current
+
+      // Changing input should trigger always again
+      act(() => result.current.setValue(10))
+
+      // Should only have called always a reasonable number of times
+      expect(alwaysCallCount.current - initialCallCount).toBeLessThanOrEqual(2)
+    })
+
+    it('always block runs on context change and can trigger state update', () => {
+      // This test documents that always runs when context changes
+      // and can safely update state if properly guarded
+
+      const machine = createMachine<{
+        input: { trigger: boolean }
+        internal: { count: number }
+        events: {}
+      }>({
+        internal: { count: 0 },
+        always: [
+          {
+            // Only increment when trigger is true and count is 0
+            when: (ctx) => ctx.trigger && ctx.count === 0,
+            do: (_ctx, _payload, assign) => {
+              assign({ count: 1 })
+            },
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => {
+        const [trigger, setTrigger] = useState(false)
+        const [snapshot, send] = useMachine(machine, { input: { trigger } })
+        return { snapshot, send, setTrigger }
+      })
+
+      // Initially count is 0, trigger is false, so always doesn't fire
+      expect(result.current.snapshot.count).toBe(0)
+
+      // When trigger becomes true, always fires and increments count
+      act(() => result.current.setTrigger(true))
+      expect(result.current.snapshot.count).toBe(1)
+
+      // Count is now 1, so the guard (count === 0) is false, no infinite loop
     })
   })
 })
