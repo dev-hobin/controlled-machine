@@ -200,10 +200,22 @@ export type State<T extends MachineTypes> = T['state'] extends string
 // ============================================
 
 /**
+ * Check if type has only index signature (no specific keys)
+ * `string extends keyof T` is true for Record<string, K> types
+ */
+type HasOnlyIndexSignature<T> = string extends keyof T ? true : false
+
+/**
  * Detects if two types have overlapping keys
  * Returns true if any key exists in both A and B
+ *
+ * Types with only index signatures (like Record<string, never>) are treated as empty,
+ * since they don't have specific keys that could overlap.
  */
-type HasOverlappingKeys<A, B> = keyof A & keyof B extends never ? false : true
+type HasOverlappingKeys<A, B> =
+  HasOnlyIndexSignature<A> extends true ? false :
+  HasOnlyIndexSignature<B> extends true ? false :
+  keyof A & keyof B extends never ? false : true
 
 /**
  * Check all combinations of key overlaps between Input, Internal, Computed
