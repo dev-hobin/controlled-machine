@@ -1,7 +1,7 @@
 {
   "name": "controlled-machine",
-  "version": "0.4.3",
-  "description": "A controlled state machine where state lives outside the machine",
+  "version": "0.5.0",
+  "description": "[ARCHIVED] A controlled state machine experiment - see README for insights and new direction",
   "type": "module",
   "sideEffects": false,
   "exports": {

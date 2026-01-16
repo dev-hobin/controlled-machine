@@ -1,5 +1,123 @@
 # Controlled Machine
 
+> **⚠️ ARCHIVED**: 이 프로젝트는 아카이브되었습니다. 아래의 여정과 통찰을 바탕으로 새로운 접근 방식의 프로젝트가 진행될 예정입니다.
+
+---
+
+## 문제 정의
+
+### XState와 useReducer가 잘 안 쓰이는 이유
+
+XState와 useReducer는 상태 모델링에 강력한 도구다. 선언적으로 상태를 표현하고, 구현과 인터페이스를 분리할 수 있다. **그런데도 실제로는 잘 안 쓰인다.**
+
+이유는 **외부 상태에 닫혀 있기 때문**이다.
+
+- 외부 상황을 무시하고 자신의 내부 상태만 철저히 관리한다
+- 오직 이벤트를 통해서만 소통하려 한다
+
+React 컴포넌트 생태계에서 가장 강력한 힘을 가진 것은 **props로 전달되는 외부 상태**다. 하지만 reducer나 XState는 이 외부 상태를 다루기 까다롭다.
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│  외부 상태       │ ──?──▶ │  내부 머신       │
+│  (props)        │         │  (uncontrolled) │
+│                 │ ◀──?─── │                 │
+└─────────────────┘         └─────────────────┘
+
+1. 외부 → 내부: 어떤 이벤트를 보낼지?
+2. 내부 → 외부: 어떻게 동기화할지?
+3. 충돌 시: 누가 이길지?
+```
+
+**도구의 한계가 개념의 가치까지 묻어버리는 셈이다.**
+
+---
+
+## 여정
+
+```
+목표: XState/useReducer를 "controlled"처럼 쓰고 싶다
+         │
+         ▼
+시도 1: 새로운 상태 머신 라이브러리 만들기 (controlled-machine)
+         │
+         ├─ input/internal/computed 분리
+         ├─ FSM 상태 추가
+         ├─ Discriminated Union 지원
+         │
+         ▼
+문제: 결국 XState와 비슷해지면서 복잡해짐
+         │
+         ▼
+시도 2: 합성 가능한 구조로 분리
+         │
+         ├─ Core는 단순하게
+         ├─ 확장은 Wrapper로
+         │
+         ▼
+깨달음: 기존 도구(XState, useReducer)를 그대로 쓰고
+        "controlled wrapper"만 만들면 되잖아?
+         │
+         ▼
+최종 목표: controlled(xstate), controlled(useReducer)
+```
+
+---
+
+## 통찰
+
+### 1. 문제를 복잡하게 풀지 마라
+
+- input/internal/computed 분리 → 복잡한 조합 로직
+- Managed mode/Computed mode → 두 가지 경로 관리
+- state/discriminatedState → 타입 시스템 복잡화
+
+**해결책**: 문제 자체를 없애거나, 단일 책임으로 분리
+
+### 2. 기존 도구를 활용하라
+
+XState와 useReducer는 이미 검증됨. 새로 만들 필요 없이 **동기화 문제만 해결**하면 됨.
+
+### 3. 진짜 해결해야 할 문제
+
+> 외부 상태(props)와 내부 상태(machine/reducer)를 어떻게 안전하게 동기화할 것인가?
+
+이 하나의 문제만 잘 풀면 된다.
+
+---
+
+## 새로운 방향
+
+기존 상태 관리 도구를 그대로 사용하고, **동기화만 해결하는 wrapper**를 만든다:
+
+```typescript
+import { createMachine } from 'xstate'
+import { controlled } from 'controlled-wrapper'  // 새 프로젝트
+
+const xstateMachine = createMachine({ ... })
+const controlledMachine = controlled(xstateMachine, {
+  sync: { ... },    // 외부 → 내부 (이벤트 변환)
+  notify: { ... },  // 내부 → 외부 (콜백 호출)
+  conflict: { ... } // 충돌 해결
+})
+```
+
+자세한 내용은 [`docs/`](./docs/) 폴더 참조:
+- [PROBLEM.md](./docs/PROBLEM.md) - 문제 정의
+- [JOURNEY.md](./docs/JOURNEY.md) - 여정
+- [INTERFACE.md](./docs/INTERFACE.md) - 새 인터페이스 설계
+- [REJECTED.md](./docs/REJECTED.md) - 거부된 접근 방식들
+
+---
+
+---
+
+# 아래는 기존 문서 (참고용)
+
+---
+
+## Original: Controlled Machine (v0.4.x)
+
 A controlled state machine with **internal state management**.
 Machine owns **its own state**. Your component passes **external data**.
 
